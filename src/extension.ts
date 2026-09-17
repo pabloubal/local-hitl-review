@@ -43,6 +43,16 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Toggle view modes
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.viewAsTree', () => {
+      changedFilesProvider.toggleTreeView(true);
+    }),
+    vscode.commands.registerCommand('vscodeComment.viewAsList', () => {
+      changedFilesProvider.toggleTreeView(false);
+    })
+  );
+
   // Initialize feedback workspace
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.initFeedbackWorkspace', async () => {

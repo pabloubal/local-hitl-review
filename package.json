@@ -59,6 +59,18 @@
         "category": "Local HITL Review"
       },
       {
+        "command": "vscodeComment.viewAsTree",
+        "title": "View as Tree",
+        "category": "Local HITL Review",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "vscodeComment.viewAsList",
+        "title": "View as List",
+        "category": "Local HITL Review",
+        "icon": "$(list-flat)"
+      },
+      {
         "command": "vscodeComment.createComment",
         "title": "Add Review Comment",
         "enablement": "!commentIsEmpty"
@@ -138,6 +150,16 @@
         {
           "command": "vscodeComment.refreshChanges",
           "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.viewAsTree",
+          "when": "view == vscodeComment.changedFiles && !vscodeComment.isTreeView",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.viewAsList",
+          "when": "view == vscodeComment.changedFiles && vscodeComment.isTreeView",
           "group": "navigation"
         },
         {

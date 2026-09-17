@@ -11,17 +11,20 @@ export type CompareMode =
   | { type: 'commit'; hash: string; label: string }  // Since a specific commit → working tree
   | { type: 'uncommitted' };                    // HEAD → working tree (uncommitted only)
 
+export type ReviewTreeNode = ChangedFileItem | FolderItem;
+
 /**
  * TreeView data provider that shows files changed based on the
  * selected compare mode (entire branch, since commit, or uncommitted).
  */
 export class ChangedFilesProvider
-  implements vscode.TreeDataProvider<ChangedFileItem>, vscode.Disposable
+  implements vscode.TreeDataProvider<ReviewTreeNode>, vscode.Disposable
 {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private changedFiles: ChangedFile[] = [];
+  private isTreeView: boolean = false;
   private compareRef: string = '';  // The ref we're comparing against (for diff URIs)
   private baseBranch: string = '';
   private compareMode: CompareMode = { type: 'branch' };
@@ -110,6 +113,15 @@ export class ChangedFilesProvider
   }
 
   /**
+   * Toggle between Tree View and List View.
+   */
+  toggleTreeView(isTree: boolean): void {
+    this.isTreeView = isTree;
+    vscode.commands.executeCommand('setContext', 'vscodeComment.isTreeView', this.isTreeView);
+    this._onDidChangeTreeData.fire();
+  }
+
+  /**
    * Get the current base branch name.
    */
   getBaseBranch(): string {
@@ -137,15 +149,90 @@ export class ChangedFilesProvider
     return this.changedFiles.map((f) => f.path);
   }
 
-  getTreeItem(element: ChangedFileItem): vscode.TreeItem {
+  getTreeItem(element: ReviewTreeNode): vscode.TreeItem {
     return element;
   }
 
-  getChildren(): ChangedFileItem[] {
-    return this.changedFiles.map((file) => {
-      const item = new ChangedFileItem(file, this.workspaceRoot);
-      return item;
-    });
+  getChildren(element?: ReviewTreeNode): ReviewTreeNode[] {
+    if (!element) {
+      if (!this.isTreeView) {
+        return this.changedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false));
+      } else {
+        return this.buildTreeNodes(this.changedFiles);
+      }
+    } else if (element instanceof FolderItem) {
+      return element.children;
+    }
+    return [];
+  }
+
+  private buildTreeNodes(files: ChangedFile[]): ReviewTreeNode[] {
+    const rootNodes: ReviewTreeNode[] = [];
+    const folderMap = new Map<string, FolderItem>();
+
+    for (const file of files) {
+      const parts = file.path.split('/');
+      let currentMap = folderMap;
+      let currentPath = '';
+
+      for (let i = 0; i < parts.length - 1; i++) {
+        const part = parts[i];
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        let folder = currentMap.get(part);
+        if (!folder) {
+          folder = new FolderItem(part, currentPath, []);
+          currentMap.set(part, folder);
+          if (i === 0) {
+            rootNodes.push(folder);
+          } else {
+            const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+            const parentName = parentPath.split('/').pop()!;
+            // Find parent and add this folder to its children.
+            // A more robust way is tracking parents.
+          }
+        }
+      }
+    }
+    
+    // Better algorithm for tree building
+    return this.buildTreeLevel(files, 0, '');
+  }
+
+  private buildTreeLevel(files: ChangedFile[], depth: number, parentPrefix: string): ReviewTreeNode[] {
+    const nodes: ReviewTreeNode[] = [];
+    const folderGroups = new Map<string, ChangedFile[]>();
+    const rootFiles: ChangedFile[] = [];
+
+    for (const file of files) {
+      // Ensure file path matches the parent prefix (for safety, though they should)
+      if (parentPrefix && !file.path.startsWith(parentPrefix + '/')) continue;
+      
+      const relativePath = parentPrefix ? file.path.substring(parentPrefix.length + 1) : file.path;
+      const parts = relativePath.split('/');
+
+      if (parts.length === 1) {
+        rootFiles.push(file);
+      } else {
+        const folderName = parts[0];
+        if (!folderGroups.has(folderName)) {
+          folderGroups.set(folderName, []);
+        }
+        folderGroups.get(folderName)!.push(file);
+      }
+    }
+
+    for (const [folderName, folderFiles] of folderGroups.entries()) {
+      const currentPrefix = parentPrefix ? `${parentPrefix}/${folderName}` : folderName;
+      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix);
+      nodes.push(new FolderItem(folderName, currentPrefix, children));
+    }
+
+    for (const file of rootFiles) {
+      nodes.push(new ChangedFileItem(file, this.workspaceRoot, true));
+    }
+
+    return nodes;
   }
 
   dispose(): void {
@@ -169,9 +256,10 @@ const STATUS_ICONS: Record<FileStatus, vscode.ThemeIcon> = {
 export class ChangedFileItem extends vscode.TreeItem {
   constructor(
     public readonly changedFile: ChangedFile,
-    workspaceRoot: string
+    workspaceRoot: string,
+    inTree: boolean
   ) {
-    const label = changedFile.path;
+    const label = inTree ? path.basename(changedFile.path) : changedFile.path;
     super(label, vscode.TreeItemCollapsibleState.None);
 
     this.iconPath = STATUS_ICONS[changedFile.status] ?? STATUS_ICONS.M;
@@ -189,5 +277,18 @@ export class ChangedFileItem extends vscode.TreeItem {
     };
 
     this.contextValue = 'changedFile';
+  }
+}
+
+export class FolderItem extends vscode.TreeItem {
+  constructor(
+    public readonly name: string,
+    public readonly relativePath: string,
+    public readonly children: ReviewTreeNode[]
+  ) {
+    super(name, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = 'folder';
+    this.iconPath = vscode.ThemeIcon.Folder;
+    this.resourceUri = vscode.Uri.file(relativePath);
   }
 }
