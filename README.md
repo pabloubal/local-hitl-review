@@ -21,7 +21,7 @@ Requires VS Code 1.100+. Download the latest `.vsix` from [GitHub Releases](http
 
 **Via Terminal:**
 ```bash
-curl -sL $(curl -s https://api.github.com/repos/pabloubal/local-hitl-review/releases/latest | grep browser_download_url | cut -d '"' -f 4) -o /tmp/extension.vsix && code --install-extension /tmp/extension.vsix
+curl -sL $(curl -s https://api.github.com/repos/pabloubal/local-hitl-review/releases/latest | jq -r '.assets[0].browser_download_url') -o local-hitl-review.vsix && code --install-extension local-hitl-review.vsix && rm local-hitl-review.vsix
 ```
 
 **Via VS Code UI:**
