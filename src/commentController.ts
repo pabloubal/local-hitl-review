@@ -26,7 +26,7 @@ export class ReviewCommentController implements vscode.Disposable {
   ) {
     this.controller = vscode.comments.createCommentController(
       'vscode-comment',
-      'Code Review Feedback'
+      'Local HITL Review'
     );
 
     // Only allow commenting on files that are in the changed set

@@ -50,7 +50,7 @@ export class ChangedFilesProvider
             this.baseBranch = detected;
           } else {
             vscode.window.showWarningMessage(
-              'Code Review: Could not detect base branch. Use "Select Base Branch" to set one.'
+              'Local HITL Review: Could not detect base branch. Use "Select Base Branch" to set one.'
             );
             this.changedFiles = [];
             this._onDidChangeTreeData.fire();
@@ -81,7 +81,7 @@ export class ChangedFilesProvider
       this._onDidChangeTreeData.fire();
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
-      vscode.window.showErrorMessage(`Code Review: Failed to get changes — ${message}`);
+      vscode.window.showErrorMessage(`Local HITL Review: Failed to get changes — ${message}`);
       this.changedFiles = [];
       this._onDidChangeTreeData.fire();
     }
