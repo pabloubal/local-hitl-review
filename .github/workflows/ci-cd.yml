@@ -64,7 +64,9 @@ jobs:
 
       - name: Build and Package VSIX
         if: steps.check_tag.outputs.EXISTS == 'false'
-        run: npx @vscode/vsce package -o extension.vsix
+        run: |
+          npm run build
+          npx @vscode/vsce package -o extension.vsix
 
       - name: Create Tag and GitHub Release
         if: steps.check_tag.outputs.EXISTS == 'false'
