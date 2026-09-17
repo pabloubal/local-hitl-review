@@ -145,6 +145,18 @@ export class FeedbackStore implements vscode.Disposable {
     try {
       await fs.mkdir(this.feedbackDir, { recursive: true });
       
+      const gitignoreFile = path.join(this.feedbackDir, '.gitignore');
+      try {
+        await fs.access(gitignoreFile);
+      } catch {
+        // .gitignore doesn't exist, create it to ignore everything in the feedback dir
+        try {
+          await fs.writeFile(gitignoreFile, '**\n');
+        } catch (e) {
+          console.warn('Failed to write .gitignore:', e);
+        }
+      }
+      
       const agentsFile = path.join(this.feedbackDir, 'AGENTS.md');
       try {
         await fs.access(agentsFile);

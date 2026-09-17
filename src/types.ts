@@ -27,6 +27,14 @@ export interface ChangedFile {
   originalPath?: string;
 }
 
+export interface GitCommit {
+  hash: string;
+  shortHash: string;
+  subject: string;
+  author: string;
+  date: string;
+}
+
 export const SEVERITY_LABELS: Record<Severity, string> = {
   critical: '🔴 Critical',
   high: '🟠 High',

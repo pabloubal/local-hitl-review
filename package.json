@@ -131,6 +131,18 @@
         "title": "Compare Mode",
         "category": "Local HITL Review",
         "icon": "$(git-compare)"
+      },
+      {
+        "command": "vscodeComment.openAllChanges",
+        "title": "Open Changes",
+        "category": "Local HITL Review",
+        "icon": "$(git-pull-request-go-to-changes)"
+      },
+      {
+        "command": "vscodeComment.openCommitChanges",
+        "title": "Open Changes",
+        "category": "Local HITL Review",
+        "icon": "$(git-pull-request-go-to-changes)"
       }
     ],
     "submenus": [
@@ -163,6 +175,11 @@
           "group": "navigation"
         },
         {
+          "command": "vscodeComment.openAllChanges",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
           "command": "vscodeComment.selectBaseBranch",
           "when": "view == vscodeComment.changedFiles",
           "group": "navigation"
@@ -171,6 +188,17 @@
           "command": "vscodeComment.selectCompareMode",
           "when": "view == vscodeComment.changedFiles",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vscodeComment.openCommitChanges",
+          "when": "view == vscodeComment.changedFiles && viewItem == commitItem",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.openCommitChanges",
+          "when": "view == vscodeComment.changedFiles && viewItem == commitItem"
         }
       ],
       "comments/commentThread/context": [

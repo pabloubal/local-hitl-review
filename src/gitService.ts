@@ -79,25 +79,33 @@ export class GitService {
    * List commits on the current branch since it diverged from the base branch.
    * Returns commits in reverse chronological order (newest first).
    */
-  async listCommits(baseBranch: string): Promise<Array<{ hash: string; shortHash: string; subject: string; date: string }>> {
+  async listCommits(baseBranch: string): Promise<import('./types.js').GitCommit[]> {
     try {
       const mergeBase = await this.getMergeBase(baseBranch);
       const { stdout } = await this.git(
         'log',
         `${mergeBase}..HEAD`,
-        '--format=%H|%h|%s|%cr',
+        '--format=%H|%h|%s|%an|%cr',
         '--no-merges'
       );
       return stdout
         .split('\n')
         .filter(Boolean)
         .map((line) => {
-          const [hash, shortHash, subject, date] = line.split('|');
-          return { hash, shortHash, subject, date };
+          const [hash, shortHash, subject, author, date] = line.split('|');
+          return { hash, shortHash, subject, author, date };
         });
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Get the list of files changed in a specific commit.
+   */
+  async getCommitChanges(hash: string): Promise<ChangedFile[]> {
+    const { stdout } = await this.git('diff-tree', '--no-commit-id', '--name-status', '-r', hash);
+    return this.parseNameStatus(stdout);
   }
 
   /**

@@ -108,9 +108,9 @@ export async function activate(context: vscode.ExtensionContext) {
           mode: { type: 'uncommitted' },
         },
         {
-          label: '$(history) Since a specific commit…',
-          description: 'Pick a commit from this branch',
-          mode: { type: 'branch' }, // placeholder, will be overridden
+          label: '$(history) Commits (Graph)',
+          description: 'View commits in this branch',
+          mode: { type: 'commits' },
         },
       ];
 
@@ -121,42 +121,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (!picked) { return; }
 
-      if (picked.label.includes('specific commit')) {
-        // Show commit picker
-        if (!baseBranch) {
-          vscode.window.showWarningMessage('Select a base branch first.');
-          return;
-        }
-
-        const commits = await gitService.listCommits(baseBranch);
-        if (commits.length === 0) {
-          vscode.window.showInformationMessage('No commits found on this branch.');
-          return;
-        }
-
-        const commitItems = commits.map((c) => ({
-          label: `$(git-commit) ${c.shortHash}`,
-          description: c.subject,
-          detail: c.date,
-          hash: c.hash,
-          shortHash: c.shortHash,
-        }));
-
-        const pickedCommit = await vscode.window.showQuickPick(commitItems, {
-          placeHolder: 'Show changes since this commit',
-          title: 'Select Commit',
-        });
-
-        if (pickedCommit) {
-          await changedFilesProvider.setCompareMode({
-            type: 'commit',
-            hash: pickedCommit.hash,
-            label: pickedCommit.shortHash,
-          });
-        }
-      } else {
-        await changedFilesProvider.setCompareMode(picked.mode);
-      }
+      await changedFilesProvider.setCompareMode(picked.mode);
     })
   );
 
@@ -176,6 +141,79 @@ export async function activate(context: vscode.ExtensionContext) {
         const config = vscode.workspace.getConfiguration('vscodeComment');
         await config.update('feedbackDirectory', input, vscode.ConfigurationTarget.Workspace);
       }
+    })
+  );
+
+  // Open all changes in a multi-file diff editor
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.openAllChanges', async () => {
+      const compareRef = changedFilesProvider.getCompareRef();
+      if (!compareRef) {
+        vscode.window.showWarningMessage('No compare reference computed yet. Refresh first.');
+        return;
+      }
+      const files = changedFilesProvider.getChangedFiles();
+      if (files.length === 0) {
+        vscode.window.showInformationMessage('No changes to show.');
+        return;
+      }
+      
+      const resources: any[] = [];
+      for (const f of files) {
+        const filePath = f.path;
+        const originalPath = f.originalPath ?? filePath;
+        const workingUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+        const baseUri = createGitUri(workspaceRoot, originalPath, compareRef);
+        
+        let title = path.basename(filePath);
+        if (f.status === 'A') title = `${title} (Added)`;
+        else if (f.status === 'D') title = `${title} (Deleted)`;
+        else if (f.status === 'R') title = `${title} (Renamed)`;
+        
+        resources.push([
+          workingUri,
+          f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
+          f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : workingUri
+        ]);
+      }
+      
+      const title = `All Changes (${changedFilesProvider.getCompareLabel()})`;
+      await vscode.commands.executeCommand('vscode.changes', title, resources);
+    })
+  );
+
+  // Open changes for a specific commit in a multi-file diff editor
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.openCommitChanges', async (commitItem: any) => {
+      const commit = commitItem.commit;
+      const files = await gitService.getCommitChanges(commit.hash);
+      if (files.length === 0) {
+        vscode.window.showInformationMessage('No changes in this commit.');
+        return;
+      }
+      
+      const resources: any[] = [];
+      for (const f of files) {
+        const filePath = f.path;
+        const originalPath = f.originalPath ?? filePath;
+        
+        const baseUri = createGitUri(workspaceRoot, originalPath, `${commit.hash}~1`);
+        const commitUri = createGitUri(workspaceRoot, filePath, commit.hash);
+        
+        let title = path.basename(filePath);
+        if (f.status === 'A') title = `${title} (Added)`;
+        else if (f.status === 'D') title = `${title} (Deleted)`;
+        else if (f.status === 'R') title = `${title} (Renamed)`;
+        
+        resources.push([
+          commitUri,
+          f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
+          f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : commitUri
+        ]);
+      }
+      
+      const title = `Commit: ${commit.shortHash} - ${commit.subject}`;
+      await vscode.commands.executeCommand('vscode.changes', title, resources);
     })
   );
 

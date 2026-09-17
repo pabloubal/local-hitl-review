@@ -9,9 +9,10 @@ import type { ChangedFile, FileStatus } from './types.js';
 export type CompareMode =
   | { type: 'branch' }                         // All changes: merge-base → working tree
   | { type: 'commit'; hash: string; label: string }  // Since a specific commit → working tree
+  | { type: 'commits' }                        // Graph view of commits
   | { type: 'uncommitted' };                    // HEAD → working tree (uncommitted only)
 
-export type ReviewTreeNode = ChangedFileItem | FolderItem;
+export type ReviewTreeNode = ChangedFileItem | FolderItem | CommitItem;
 
 /**
  * TreeView data provider that shows files changed based on the
@@ -24,6 +25,7 @@ export class ChangedFilesProvider
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private changedFiles: ChangedFile[] = [];
+  private commits: import('./types.js').GitCommit[] = [];
   private isTreeView: boolean = false;
   private compareRef: string = '';  // The ref we're comparing against (for diff URIs)
   private baseBranch: string = '';
@@ -72,6 +74,11 @@ export class ChangedFilesProvider
           this.compareRef = this.compareMode.hash;
           // Diff from that commit to working tree
           this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
+          break;
+        }
+        case 'commits': {
+          this.commits = await this.gitService.listCommits(this.baseBranch);
+          this.changedFiles = [];
           break;
         }
         case 'uncommitted': {
@@ -137,6 +144,8 @@ export class ChangedFilesProvider
         return `vs ${this.baseBranch}`;
       case 'commit':
         return `since ${this.compareMode.label}`;
+      case 'commits':
+        return `commits vs ${this.baseBranch}`;
       case 'uncommitted':
         return 'uncommitted';
     }
@@ -149,12 +158,22 @@ export class ChangedFilesProvider
     return this.changedFiles.map((f) => f.path);
   }
 
+  /**
+   * Get all changed files.
+   */
+  getChangedFiles(): import('./types.js').ChangedFile[] {
+    return this.changedFiles;
+  }
+
   getTreeItem(element: ReviewTreeNode): vscode.TreeItem {
     return element;
   }
 
   getChildren(element?: ReviewTreeNode): ReviewTreeNode[] {
     if (!element) {
+      if (this.compareMode.type === 'commits') {
+        return this.commits.map((commit) => new CommitItem(commit));
+      }
       if (!this.isTreeView) {
         return this.changedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false));
       } else {
@@ -292,3 +311,22 @@ export class FolderItem extends vscode.TreeItem {
     this.resourceUri = vscode.Uri.file(relativePath);
   }
 }
+
+export class CommitItem extends vscode.TreeItem {
+  constructor(public readonly commit: import('./types.js').GitCommit) {
+    super(commit.subject, vscode.TreeItemCollapsibleState.None);
+
+    this.description = `${commit.author} • ${commit.date}`;
+    this.tooltip = `${commit.shortHash} - ${commit.subject}\nBy ${commit.author} (${commit.date})`;
+    this.iconPath = new vscode.ThemeIcon('git-commit', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
+    
+    this.command = {
+      command: 'vscodeComment.openCommitChanges',
+      title: 'Open Changes',
+      arguments: [this],
+    };
+
+    this.contextValue = 'commitItem';
+  }
+}
+
