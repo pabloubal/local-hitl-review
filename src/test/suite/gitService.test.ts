@@ -30,6 +30,7 @@ suite('GitService Integration Tests', () => {
     await fs.writeFile(path.join(tempDir, 'file1.txt'), 'initial content\n');
     await git('add', 'file1.txt');
     await git('commit', '-m', 'Initial commit');
+    await git('branch', '-m', 'main');
   });
 
   teardown(async () => {
