@@ -1,0 +1,21 @@
+{
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    ["@semantic-release/npm", { "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "npm run build && npx @vscode/vsce package",
+      "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then npx @vscode/vsce publish -p $VSCE_PAT; fi"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["package.json", "package-lock.json", "CHANGELOG.md"],
+      "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", {
+      "assets": [
+        {"path": "*.vsix", "label": "VS Code Extension"}
+      ]
+    }]
+  ]
+}

@@ -39,7 +39,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Need full history to check if tags exist
+          fetch-depth: 0 # Need full history for semantic-release
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,29 +49,13 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Get Version from package.json
-        id: get_version
-        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Check if tag exists
-        id: check_tag
-        run: |
-          if git rev-parse "v${{ steps.get_version.outputs.VERSION }}" >/dev/null 2>&1; then
-            echo "EXISTS=true" >> $GITHUB_OUTPUT
-          else
-            echo "EXISTS=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build and Package VSIX
-        if: steps.check_tag.outputs.EXISTS == 'false'
-        run: |
-          npm run build
-          npx @vscode/vsce package
-
-      - name: Create Tag and GitHub Release
-        if: steps.check_tag.outputs.EXISTS == 'false'
-        uses: softprops/action-gh-release@v2
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v4
         with:
-          tag_name: v${{ steps.get_version.outputs.VERSION }}
-          name: Release v${{ steps.get_version.outputs.VERSION }}
-          files: "*.vsix"
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+            @semantic-release/exec
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
