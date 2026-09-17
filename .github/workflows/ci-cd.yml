@@ -66,7 +66,7 @@ jobs:
         if: steps.check_tag.outputs.EXISTS == 'false'
         run: |
           npm run build
-          npx @vscode/vsce package -o extension.vsix
+          npx @vscode/vsce package
 
       - name: Create Tag and GitHub Release
         if: steps.check_tag.outputs.EXISTS == 'false'
@@ -74,4 +74,4 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: Release v${{ steps.get_version.outputs.VERSION }}
-          files: extension.vsix
+          files: "*.vsix"
