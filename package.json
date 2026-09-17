@@ -1,0 +1,251 @@
+{
+  "name": "local-hitl-review",
+  "displayName": "Local HITL Review",
+  "description": "Human-in-the-loop local code reviews without needing Draft PRs",
+  "version": "0.1.0",
+  "publisher": "pablo",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:vscodeComment.changedFiles"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {},
+    "views": {
+      "scm": [
+        {
+          "id": "vscodeComment.changedFiles",
+          "name": "Review: Changed Files"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "vscodeComment.refreshChanges",
+        "title": "Refresh Changed Files",
+        "category": "Code Review",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vscodeComment.selectBaseBranch",
+        "title": "Select Base Branch",
+        "category": "Code Review",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "vscodeComment.setFeedbackDir",
+        "title": "Set Feedback Directory",
+        "category": "Code Review"
+      },
+      {
+        "command": "vscodeComment.initFeedbackWorkspace",
+        "title": "Initialize Feedback Workspace",
+        "category": "Code Review",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "vscodeComment.openDiff",
+        "title": "Open Diff",
+        "category": "Code Review"
+      },
+      {
+        "command": "vscodeComment.createComment",
+        "title": "Add Review Comment",
+        "enablement": "!commentIsEmpty"
+      },
+      {
+        "command": "vscodeComment.createCommentWithSuggestion",
+        "title": "Add Suggestion",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "vscodeComment.insertSuggestionIntoComment",
+        "title": "Add Suggestion",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "vscodeComment.applySuggestion",
+        "title": "Apply Suggestion",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vscodeComment.editComment",
+        "title": "Edit",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vscodeComment.deleteComment",
+        "title": "Delete",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vscodeComment.saveComment",
+        "title": "Save",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vscodeComment.cancelEdit",
+        "title": "Cancel",
+        "icon": "$(close)"
+      },
+      {
+        "command": "vscodeComment.setSeverityCritical",
+        "title": "🔴 Critical"
+      },
+      {
+        "command": "vscodeComment.setSeverityHigh",
+        "title": "🟠 High"
+      },
+      {
+        "command": "vscodeComment.setSeverityMedium",
+        "title": "🟡 Medium"
+      },
+      {
+        "command": "vscodeComment.setSeverityLow",
+        "title": "🟢 Low"
+      },
+      {
+        "command": "vscodeComment.selectCompareMode",
+        "title": "Compare Mode",
+        "category": "Code Review",
+        "icon": "$(git-compare)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "vscodeComment.severityMenu",
+        "label": "Change Severity",
+        "icon": "$(warning)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "vscodeComment.initFeedbackWorkspace",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.refreshChanges",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.selectBaseBranch",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.selectCompareMode",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        }
+      ],
+      "comments/commentThread/context": [
+        {
+          "command": "vscodeComment.createComment",
+          "group": "inline@1",
+          "when": "commentController == vscode-comment"
+        },
+        {
+          "command": "vscodeComment.createCommentWithSuggestion",
+          "group": "inline@2",
+          "when": "commentController == vscode-comment"
+        }
+      ],
+      "comments/comment/title": [
+        {
+          "command": "vscodeComment.editComment",
+          "group": "inline",
+          "when": "commentController == vscode-comment && comment == canEdit"
+        },
+        {
+          "command": "vscodeComment.deleteComment",
+          "group": "inline",
+          "when": "commentController == vscode-comment && comment == canEdit"
+        },
+        {
+          "submenu": "vscodeComment.severityMenu",
+          "group": "inline",
+          "when": "commentController == vscode-comment && comment == canEdit"
+        },
+        {
+          "command": "vscodeComment.applySuggestion",
+          "group": "inline",
+          "when": "commentController == vscode-comment && comment == canEdit"
+        }
+      ],
+      "comments/comment/context": [
+        {
+          "command": "vscodeComment.insertSuggestionIntoComment",
+          "group": "inline@0",
+          "when": "commentController == vscode-comment && comment == editing"
+        },
+        {
+          "command": "vscodeComment.cancelEdit",
+          "group": "inline@1",
+          "when": "commentController == vscode-comment && comment == editing"
+        },
+        {
+          "command": "vscodeComment.saveComment",
+          "group": "inline@2",
+          "when": "commentController == vscode-comment && comment == editing"
+        }
+      ],
+      "vscodeComment.severityMenu": [
+        {
+          "command": "vscodeComment.setSeverityCritical"
+        },
+        {
+          "command": "vscodeComment.setSeverityHigh"
+        },
+        {
+          "command": "vscodeComment.setSeverityMedium"
+        },
+        {
+          "command": "vscodeComment.setSeverityLow"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Code Review Feedback",
+      "properties": {
+        "vscodeComment.feedbackDirectory": {
+          "type": "string",
+          "default": ".feedback",
+          "description": "Directory (relative to workspace root) where .review feedback files are stored"
+        },
+        "vscodeComment.baseBranch": {
+          "type": "string",
+          "default": "",
+          "description": "Base branch to compare against (e.g. 'main'). Leave empty to auto-detect."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "pretest": "tsc",
+    "test:unit": "node --test out/test/*.test.js",
+    "test:integration": "vscode-test",
+    "test": "npm run test:unit && npm run test:integration",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.15.29",
+    "@types/vscode": "^1.100.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.25.5",
+    "mocha": "^12.0.2",
+    "typescript": "^5.8.3"
+  }
+}
