@@ -225,19 +225,24 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand(
       'vscodeComment.openDiff',
-      async (changedFile: ChangedFile) => {
-        const compareRef = changedFilesProvider.getCompareRef();
-        if (!compareRef) {
+      async (changedFile: ChangedFile, commitHash?: string) => {
+        let compareRef = changedFilesProvider.getCompareRef();
+        if (commitHash) {
+          compareRef = `${commitHash}~1`;
+        } else if (!compareRef) {
           vscode.window.showWarningMessage('No compare reference computed yet. Refresh first.');
           return;
         }
 
         const filePath = changedFile.path;
-        const workingUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+        let rightUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+        if (commitHash) {
+          rightUri = createGitUri(workspaceRoot, filePath, commitHash);
+        }
 
         if (changedFile.status === 'A') {
           // New file — just open it
-          await vscode.window.showTextDocument(workingUri);
+          await vscode.window.showTextDocument(rightUri);
           return;
         }
 
@@ -251,9 +256,13 @@ export async function activate(context: vscode.ExtensionContext) {
         // Modified, renamed, copied — show diff
         const originalPath = changedFile.originalPath ?? filePath;
         const baseUri = createGitUri(workspaceRoot, originalPath, compareRef);
-        const title = `${path.basename(filePath)} (${changedFilesProvider.getCompareLabel()} ↔ Working)`;
+        
+        let title = `${path.basename(filePath)} (${changedFilesProvider.getCompareLabel()} ↔ Working)`;
+        if (commitHash) {
+          title = `${path.basename(filePath)} (Commit ${commitHash.substring(0, 7)})`;
+        }
 
-        await vscode.commands.executeCommand('vscode.diff', baseUri, workingUri, title);
+        await vscode.commands.executeCommand('vscode.diff', baseUri, rightUri, title);
       }
     )
   );

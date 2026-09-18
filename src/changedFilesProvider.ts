@@ -173,7 +173,7 @@ export class ChangedFilesProvider
     return element;
   }
 
-  getChildren(element?: ReviewTreeNode): ReviewTreeNode[] {
+  async getChildren(element?: ReviewTreeNode): Promise<ReviewTreeNode[]> {
     if (!element) {
       if (this.compareMode.type === 'commits') {
         return this.commits.map((commit) => new CommitItem(commit));
@@ -185,44 +185,23 @@ export class ChangedFilesProvider
       }
     } else if (element instanceof FolderItem) {
       return element.children;
+    } else if (element instanceof CommitItem) {
+      const commitHash = element.commit.hash;
+      const files = await this.gitService.getCommitChanges(commitHash);
+      if (!this.isTreeView) {
+        return files.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, commitHash));
+      } else {
+        return this.buildTreeNodes(files, commitHash);
+      }
     }
     return [];
   }
 
-  private buildTreeNodes(files: ChangedFile[]): ReviewTreeNode[] {
-    const rootNodes: ReviewTreeNode[] = [];
-    const folderMap = new Map<string, FolderItem>();
-
-    for (const file of files) {
-      const parts = file.path.split('/');
-      let currentMap = folderMap;
-      let currentPath = '';
-
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-        let folder = currentMap.get(part);
-        if (!folder) {
-          folder = new FolderItem(part, currentPath, []);
-          currentMap.set(part, folder);
-          if (i === 0) {
-            rootNodes.push(folder);
-          } else {
-            const parentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
-            const parentName = parentPath.split('/').pop()!;
-            // Find parent and add this folder to its children.
-            // A more robust way is tracking parents.
-          }
-        }
-      }
-    }
-    
-    // Better algorithm for tree building
-    return this.buildTreeLevel(files, 0, '');
+  private buildTreeNodes(files: ChangedFile[], commitHash?: string): ReviewTreeNode[] {
+    return this.buildTreeLevel(files, 0, '', commitHash);
   }
 
-  private buildTreeLevel(files: ChangedFile[], depth: number, parentPrefix: string): ReviewTreeNode[] {
+  private buildTreeLevel(files: ChangedFile[], depth: number, parentPrefix: string, commitHash?: string): ReviewTreeNode[] {
     const nodes: ReviewTreeNode[] = [];
     const folderGroups = new Map<string, ChangedFile[]>();
     const rootFiles: ChangedFile[] = [];
@@ -247,12 +226,12 @@ export class ChangedFilesProvider
 
     for (const [folderName, folderFiles] of folderGroups.entries()) {
       const currentPrefix = parentPrefix ? `${parentPrefix}/${folderName}` : folderName;
-      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix);
+      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix, commitHash);
       nodes.push(new FolderItem(folderName, currentPrefix, children));
     }
 
     for (const file of rootFiles) {
-      nodes.push(new ChangedFileItem(file, this.workspaceRoot, true));
+      nodes.push(new ChangedFileItem(file, this.workspaceRoot, true, commitHash));
     }
 
     return nodes;
@@ -280,7 +259,8 @@ export class ChangedFileItem extends vscode.TreeItem {
   constructor(
     public readonly changedFile: ChangedFile,
     workspaceRoot: string,
-    inTree: boolean
+    inTree: boolean,
+    public readonly commitHash?: string
   ) {
     const label = inTree ? path.basename(changedFile.path) : changedFile.path;
     super(label, vscode.TreeItemCollapsibleState.None);
@@ -296,10 +276,10 @@ export class ChangedFileItem extends vscode.TreeItem {
     this.command = {
       command: 'vscodeComment.openDiff',
       title: 'Open Diff',
-      arguments: [changedFile],
+      arguments: [changedFile, commitHash],
     };
 
-    this.contextValue = 'changedFile';
+    this.contextValue = 'changedFileItem';
   }
 }
 
@@ -318,19 +298,12 @@ export class FolderItem extends vscode.TreeItem {
 
 export class CommitItem extends vscode.TreeItem {
   constructor(public readonly commit: import('./types.js').GitCommit) {
-    super(commit.subject, vscode.TreeItemCollapsibleState.None);
+    super(commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
 
     this.description = `${commit.author} • ${commit.date}`;
     this.tooltip = `${commit.shortHash} - ${commit.subject}\nBy ${commit.author} (${commit.date})`;
     this.iconPath = new vscode.ThemeIcon('git-commit', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
-    
-    this.command = {
-      command: 'vscodeComment.openCommitChanges',
-      title: 'Open Changes',
-      arguments: [this],
-    };
 
     this.contextValue = 'commitItem';
   }
 }
-
