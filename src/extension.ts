@@ -4,6 +4,7 @@ import { GitService } from './gitService.js';
 import { FeedbackStore } from './feedbackStore.js';
 import { ChangedFilesProvider } from './changedFilesProvider.js';
 import { ReviewCommentController } from './commentController.js';
+import { outputChannel, log } from './logger.js';
 import type { ChangedFile } from './types.js';
 import type { CompareMode } from './changedFilesProvider.js';
 
@@ -86,6 +87,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Select compare mode (entire branch / specific commit / uncommitted)
   context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.showLogs', () => {
+      outputChannel.show(true);
+    }),
     vscode.commands.registerCommand('vscodeComment.selectCompareMode', async () => {
       const baseBranch = changedFilesProvider.getBaseBranch();
       const currentMode = changedFilesProvider.getCompareMode();
@@ -338,7 +342,8 @@ export async function activate(context: vscode.ExtensionContext) {
   changedFilesProvider.onDidChangeTreeData(() => {
     const label = changedFilesProvider.getCompareLabel();
     if (label) {
-      treeView.title = `Review: ${label}`;
+      treeView.description = label;
+      treeView.title = 'Local HITL Review'; // Restore original title if it was changed
     }
   });
 }

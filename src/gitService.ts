@@ -1,10 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import * as vscode from 'vscode';
 import type { ChangedFile, FileStatus } from './types.js';
+import { log } from './logger.js';
 
 const execFileAsync = promisify(execFile);
-const gitOutputChannel = vscode.window.createOutputChannel('Local HITL Review - Git');
 
 /**
  * Service for git operations using shell commands.
@@ -132,18 +131,18 @@ export class GitService {
 
   private async git(...args: string[]): Promise<{ stdout: string; stderr: string }> {
     const start = Date.now();
-    gitOutputChannel.appendLine(`[Git] > git ${args.join(' ')}`);
+    log(`> git ${args.join(' ')}`);
     try {
       const result = await execFileAsync('git', args, {
         cwd: this.repoRoot,
         maxBuffer: 10 * 1024 * 1024, // 10MB
       });
       const duration = Date.now() - start;
-      gitOutputChannel.appendLine(`[Git] < ok (${duration}ms) stdout: ${result.stdout.length} bytes`);
+      log(`< ok (${duration}ms) stdout: ${result.stdout.length} bytes`);
       return result;
     } catch (e: any) {
       const duration = Date.now() - start;
-      gitOutputChannel.appendLine(`[Git] < failed (${duration}ms) error: ${e.message}`);
+      log(`< failed (${duration}ms) error: ${e.message}`);
       throw e;
     }
   }

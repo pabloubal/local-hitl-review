@@ -26,7 +26,7 @@ export class ChangedFilesProvider
 
   private changedFiles: ChangedFile[] = [];
   private commits: import('./types.js').GitCommit[] = [];
-  private isTreeView: boolean = false;
+  private isTreeView: boolean = true;
   private compareRef: string = '';  // The ref we're comparing against (for diff URIs)
   private baseBranch: string = '';
   private compareMode: CompareMode = { type: 'branch' };
@@ -35,7 +35,10 @@ export class ChangedFilesProvider
   constructor(
     private readonly gitService: GitService,
     private readonly workspaceRoot: string
-  ) {}
+  ) {
+    // Initialize context state
+    vscode.commands.executeCommand('setContext', 'vscodeComment.isTreeView', this.isTreeView);
+  }
 
   /**
    * Refresh the list of changed files based on the current compare mode.

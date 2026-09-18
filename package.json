@@ -40,7 +40,7 @@
         "command": "vscodeComment.selectBaseBranch",
         "title": "Select Base Branch",
         "category": "Local HITL Review",
-        "icon": "$(git-branch)"
+        "icon": "$(source-control)"
       },
       {
         "command": "vscodeComment.setFeedbackDir",
@@ -56,6 +56,11 @@
       {
         "command": "vscodeComment.openDiff",
         "title": "Open Diff",
+        "category": "Local HITL Review"
+      },
+      {
+        "command": "vscodeComment.showLogs",
+        "title": "Show Logs",
         "category": "Local HITL Review"
       },
       {
