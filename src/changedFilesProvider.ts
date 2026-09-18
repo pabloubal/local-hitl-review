@@ -80,8 +80,9 @@ export class ChangedFilesProvider
           break;
         }
         case 'commits': {
+          this.compareRef = await this.gitService.getMergeBase(this.baseBranch);
           this.commits = await this.gitService.listCommits(this.baseBranch);
-          this.changedFiles = [];
+          this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
           break;
         }
         case 'uncommitted': {
