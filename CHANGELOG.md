@@ -1,3 +1,10 @@
+## [0.3.1](https://github.com/pabloubal/local-hitl-review/compare/v0.3.0...v0.3.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* populate changed files using merge base in commits view ([a0e9794](https://github.com/pabloubal/local-hitl-review/commit/a0e9794b6b2015f6d9497f2d9dafdbb39d7b2b9e))
+
 # [0.3.0](https://github.com/pabloubal/local-hitl-review/compare/v0.2.0...v0.3.0) (2026-09-18)
 
 
