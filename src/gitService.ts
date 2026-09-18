@@ -50,23 +50,27 @@ export class GitService {
    * List local branch names.
    */
   async listBranches(): Promise<string[]> {
-    const { stdout } = await this.git('branch', '--format=%(refname:short)');
+    const { stdout } = await this.git('branch', '-a', '--format=%(refname:short)');
     return stdout
       .split('\n')
       .map((b) => b.trim())
-      .filter(Boolean);
+      .filter((b) => b && b !== 'origin');
   }
 
   /**
    * Auto-detect the likely base branch.
-   * Tries common defaults: main, master, develop.
+   * Tries common defaults including remote branches.
    */
   async detectBaseBranch(): Promise<string | undefined> {
     const branches = await this.listBranches();
     const currentBranch = await this.getCurrentBranch();
 
     // Don't return the current branch as base
-    const candidates = ['main', 'master', 'develop'];
+    const candidates = [
+      'origin/main', 'origin/master', 'origin/develop',
+      'upstream/main', 'upstream/master',
+      'main', 'master', 'develop'
+    ];
     for (const candidate of candidates) {
       if (branches.includes(candidate) && candidate !== currentBranch) {
         return candidate;
