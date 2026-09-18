@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/pabloubal/local-hitl-review/compare/v0.3.1...v0.4.0) (2026-09-18)
+
+
+### Features
+
+* add support for viewing commit-specific file diffs ([23941aa](https://github.com/pabloubal/local-hitl-review/commit/23941aab7442c65a9cbd4c46a65309fba53d3498))
+
 ## [0.3.1](https://github.com/pabloubal/local-hitl-review/compare/v0.3.0...v0.3.1) (2026-09-18)
 
 
