@@ -1,3 +1,12 @@
+# [0.3.0](https://github.com/pabloubal/local-hitl-review/compare/v0.2.0...v0.3.0) (2026-09-18)
+
+
+### Features
+
+* add centralized logger, show logs command, and tree view enhancements ([96af28f](https://github.com/pabloubal/local-hitl-review/commit/96af28f2fd164d3d55d4018a020feb86a820b5bd))
+* add output channel and execution logging for git commands ([eabecc8](https://github.com/pabloubal/local-hitl-review/commit/eabecc8aad404c76e697050e713169ed5e76a2b7))
+* include remote branches in branch listing and base branch detection ([664e88d](https://github.com/pabloubal/local-hitl-review/commit/664e88db362a0cf0abbe31cb919588027fbfe361))
+
 # [0.2.0](https://github.com/pabloubal/local-hitl-review/compare/v0.1.4...v0.2.0) (2026-09-17)
 
 

@@ -2,7 +2,7 @@
   "name": "local-hitl-review",
   "displayName": "Local HITL Review",
   "description": "Human-in-the-loop local code reviews without needing Draft PRs",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "pablo",
   "license": "MIT",
   "repository": {
