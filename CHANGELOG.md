@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/pabloubal/local-hitl-review/compare/v0.4.0...v0.5.0) (2026-09-21)
+
+
+### Features
+
+* add copy agent prompt command, configurable agents file, and work-in-progress change view support ([64a0111](https://github.com/pabloubal/local-hitl-review/commit/64a01116f338814faff85435b8e4c9e2b79d891c))
+
 # [0.4.0](https://github.com/pabloubal/local-hitl-review/compare/v0.3.1...v0.4.0) (2026-09-18)
 
 
