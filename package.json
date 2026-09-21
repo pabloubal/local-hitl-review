@@ -138,6 +138,12 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "vscodeComment.copyAgentPrompt",
+        "title": "Copy Agent Prompt",
+        "category": "Local HITL Review",
+        "icon": "$(clippy)"
+      },
+      {
         "command": "vscodeComment.openAllChanges",
         "title": "Open Changes",
         "category": "Local HITL Review",
@@ -193,17 +199,27 @@
           "command": "vscodeComment.selectCompareMode",
           "when": "view == vscodeComment.changedFiles",
           "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.copyAgentPrompt",
+          "when": "view == workbench.panel.comments",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.copyAgentPrompt",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
         {
           "command": "vscodeComment.openCommitChanges",
-          "when": "view == vscodeComment.changedFiles && viewItem == commitItem",
+          "when": "view == vscodeComment.changedFiles && (viewItem == commitItem || viewItem == workInProgressItem)",
           "group": "inline"
         },
         {
           "command": "vscodeComment.openCommitChanges",
-          "when": "view == vscodeComment.changedFiles && viewItem == commitItem"
+          "when": "view == vscodeComment.changedFiles && (viewItem == commitItem || viewItem == workInProgressItem)"
         }
       ],
       "comments/commentThread/context": [
@@ -284,6 +300,17 @@
           "type": "string",
           "default": "",
           "description": "Base branch to compare against (e.g. 'main'). Leave empty to auto-detect."
+        },
+        "vscodeComment.agentsFile": {
+          "type": "string",
+          "default": "AGENTS.md",
+          "description": "Name of the agents instruction file (inside feedback directory)"
+        },
+        "vscodeComment.agentsTemplateContent": {
+          "type": "string",
+          "default": "# Feedback Management\n\nThis directory contains `.review` files (YAML frontmatter + Markdown body) representing code review findings.\n\n## Reviewing Agent\nYou perform adversarial code reviews to find as many issues as possible in the codebase.\n- **New Findings**: Read existing `.review` files first to avoid duplicates. To create a new finding, duplicate the `review_template.md` file in this directory to a new `.review` file (e.g., `<timestamp>-<short_hash>.review`) and fill it out (status: `open`).\n- **Review Pushback**: If an issue has status `acknowledged`, read the pushback in the Markdown body. If you agree, do nothing. If you disagree, change status back to `open` and append your counter-argument.\n\n## Addressing Agent\nYou modify the codebase to address the findings in this directory.\n- **Fix Issues**: For any finding with status `open`, fix the code. Once the issue is addressed and fixed, delete the `.review` file.\n- **Pushback**: If you believe a finding is a false positive, change the status to `acknowledged` and append your explanation.\n\n## How to Reply (Both Agents)\nWhen appending an explanation or counter-argument, **DO NOT overwrite** the existing Markdown body. Append your reply to the bottom, separated by `___` and prefixed with your role:\n\n```markdown\n___\n**reviewing agent**:\nwe need to fix this because...\n___\n**addressing agent**:\nThis is a false positive because...\n```\n",
+          "description": "Custom Markdown content to use when creating a new agents file. If empty, the default template is used.",
+          "editPresentation": "multilineText"
         }
       }
     }

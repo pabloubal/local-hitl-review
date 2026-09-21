@@ -9,10 +9,9 @@ import type { ChangedFile, FileStatus } from './types.js';
 export type CompareMode =
   | { type: 'branch' }                         // All changes: merge-base → working tree
   | { type: 'commit'; hash: string; label: string }  // Since a specific commit → working tree
-  | { type: 'commits' }                        // Graph view of commits
-  | { type: 'uncommitted' };                    // HEAD → working tree (uncommitted only)
+  | { type: 'commits' };                        // Graph view of commits
 
-export type ReviewTreeNode = ChangedFileItem | FolderItem | CommitItem;
+export type ReviewTreeNode = ChangedFileItem | FolderItem | CommitItem | WorkInProgressItem;
 
 /**
  * TreeView data provider that shows files changed based on the
@@ -26,6 +25,7 @@ export class ChangedFilesProvider
 
   private changedFiles: ChangedFile[] = [];
   private commits: import('./types.js').GitCommit[] = [];
+  private uncommittedFiles: ChangedFile[] = [];
   private isTreeView: boolean = true;
   private compareRef: string = '';  // The ref we're comparing against (for diff URIs)
   private baseBranch: string = '';
@@ -82,12 +82,8 @@ export class ChangedFilesProvider
         case 'commits': {
           this.compareRef = await this.gitService.getMergeBase(this.baseBranch);
           this.commits = await this.gitService.listCommits(this.baseBranch);
+          this.uncommittedFiles = await this.gitService.getUncommittedChanges();
           this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
-          break;
-        }
-        case 'uncommitted': {
-          this.compareRef = 'HEAD';
-          this.changedFiles = await this.gitService.getUncommittedChanges();
           break;
         }
       }
@@ -150,8 +146,6 @@ export class ChangedFilesProvider
         return `since ${this.compareMode.label}`;
       case 'commits':
         return `commits vs ${this.baseBranch}`;
-      case 'uncommitted':
-        return 'uncommitted';
     }
   }
 
@@ -176,7 +170,12 @@ export class ChangedFilesProvider
   async getChildren(element?: ReviewTreeNode): Promise<ReviewTreeNode[]> {
     if (!element) {
       if (this.compareMode.type === 'commits') {
-        return this.commits.map((commit) => new CommitItem(commit));
+        const nodes: ReviewTreeNode[] = [];
+        if (this.uncommittedFiles.length > 0) {
+          nodes.push(new WorkInProgressItem(this.uncommittedFiles.length));
+        }
+        nodes.push(...this.commits.map((commit) => new CommitItem(commit)));
+        return nodes;
       }
       if (!this.isTreeView) {
         return this.changedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false));
@@ -192,6 +191,12 @@ export class ChangedFilesProvider
         return files.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, commitHash));
       } else {
         return this.buildTreeNodes(files, commitHash);
+      }
+    } else if (element instanceof WorkInProgressItem) {
+      if (!this.isTreeView) {
+        return this.uncommittedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, 'UNCOMMITTED'));
+      } else {
+        return this.buildTreeNodes(this.uncommittedFiles, 'UNCOMMITTED');
       }
     }
     return [];
@@ -305,5 +310,14 @@ export class CommitItem extends vscode.TreeItem {
     this.iconPath = new vscode.ThemeIcon('git-commit', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
 
     this.contextValue = 'commitItem';
+  }
+}
+
+export class WorkInProgressItem extends vscode.TreeItem {
+  constructor(public readonly filesCount: number) {
+    super('Work in progress', vscode.TreeItemCollapsibleState.Collapsed);
+    this.description = `${filesCount} uncommitted changes`;
+    this.iconPath = new vscode.ThemeIcon('files');
+    this.contextValue = 'workInProgressItem';
   }
 }

@@ -121,6 +121,15 @@ export class FeedbackStore implements vscode.Disposable {
     return this.feedbackDir;
   }
 
+  /**
+   * Get the agents file path.
+   */
+  getAgentsFilePath(): string {
+    const config = vscode.workspace.getConfiguration('vscodeComment');
+    const agentsFile = config.get<string>('agentsFile') || 'AGENTS.md';
+    return path.join(this.feedbackDir, agentsFile);
+  }
+
   dispose(): void {
     this.watcher?.dispose();
     this._onDidChange.dispose();
@@ -160,17 +169,23 @@ export class FeedbackStore implements vscode.Disposable {
         }
       }
       
-      const agentsFile = path.join(this.feedbackDir, 'AGENTS.md');
+      const agentsFile = this.getAgentsFilePath();
       try {
         await fs.access(agentsFile);
       } catch {
-        // AGENTS.md doesn't exist, create it from the template
+        // AGENTS.md doesn't exist, create it from the template or config
         try {
-          const templatePath = path.join(__dirname, '..', 'assets', 'AGENTS_template.md');
-          const templateContent = await fs.readFile(templatePath, 'utf-8');
-          await fs.writeFile(agentsFile, templateContent);
+          const config = vscode.workspace.getConfiguration('vscodeComment');
+          const customContent = config.get<string>('agentsTemplateContent');
+          if (customContent && customContent.trim() !== '') {
+            await fs.writeFile(agentsFile, customContent);
+          } else {
+            const templatePath = path.join(__dirname, '..', 'assets', 'AGENTS_template.md');
+            const templateContent = await fs.readFile(templatePath, 'utf-8');
+            await fs.writeFile(agentsFile, templateContent);
+          }
         } catch (e) {
-          console.warn('Failed to read or write AGENTS_template.md:', e);
+          console.warn('Failed to write agents file:', e);
         }
       }
 

@@ -106,14 +106,9 @@ export async function activate(context: vscode.ExtensionContext) {
           mode: { type: 'branch' },
         },
         {
-          label: '$(git-commit) Uncommitted changes',
-          description: 'Staged + unstaged changes vs HEAD',
-          detail: currentMode.type === 'uncommitted' ? '$(check) Currently selected' : undefined,
-          mode: { type: 'uncommitted' },
-        },
-        {
           label: '$(history) Commits (Graph)',
           description: 'View commits in this branch',
+          detail: currentMode.type === 'commits' ? '$(check) Currently selected' : undefined,
           mode: { type: 'commits' },
         },
       ];
@@ -145,6 +140,17 @@ export async function activate(context: vscode.ExtensionContext) {
         const config = vscode.workspace.getConfiguration('vscodeComment');
         await config.update('feedbackDirectory', input, vscode.ConfigurationTarget.Workspace);
       }
+    })
+  );
+
+  // Copy agent prompt to clipboard
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.copyAgentPrompt', async () => {
+      const agentsFile = store.getAgentsFilePath();
+      const relative = path.relative(workspaceRoot, agentsFile).replace(/\\/g, '/');
+      const text = `@${relative}`;
+      await vscode.env.clipboard.writeText(text);
+      vscode.window.showInformationMessage(`Copied to clipboard: ${text}`);
     })
   );
 
@@ -188,8 +194,31 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Open changes for a specific commit in a multi-file diff editor
   context.subscriptions.push(
-    vscode.commands.registerCommand('vscodeComment.openCommitChanges', async (commitItem: any) => {
-      const commit = commitItem.commit;
+    vscode.commands.registerCommand('vscodeComment.openCommitChanges', async (item: any) => {
+      if (item.contextValue === 'workInProgressItem') {
+        const files = await gitService.getUncommittedChanges();
+        if (files.length === 0) {
+          vscode.window.showInformationMessage('No uncommitted changes.');
+          return;
+        }
+        const resources: any[] = [];
+        for (const f of files) {
+          const filePath = f.path;
+          const originalPath = f.originalPath ?? filePath;
+          const baseUri = createGitUri(workspaceRoot, originalPath, 'HEAD');
+          const currentUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+          
+          resources.push([
+            currentUri,
+            f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
+            f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : currentUri
+          ]);
+        }
+        await vscode.commands.executeCommand('vscode.changes', 'Work in progress', resources);
+        return;
+      }
+
+      const commit = item.commit;
       const files = await gitService.getCommitChanges(commit.hash);
       if (files.length === 0) {
         vscode.window.showInformationMessage('No changes in this commit.');
@@ -203,11 +232,6 @@ export async function activate(context: vscode.ExtensionContext) {
         
         const baseUri = createGitUri(workspaceRoot, originalPath, `${commit.hash}~1`);
         const commitUri = createGitUri(workspaceRoot, filePath, commit.hash);
-        
-        let title = path.basename(filePath);
-        if (f.status === 'A') title = `${title} (Added)`;
-        else if (f.status === 'D') title = `${title} (Deleted)`;
-        else if (f.status === 'R') title = `${title} (Renamed)`;
         
         resources.push([
           commitUri,
@@ -228,7 +252,11 @@ export async function activate(context: vscode.ExtensionContext) {
       async (changedFile: ChangedFile, commitHash?: string) => {
         let compareRef = changedFilesProvider.getCompareRef();
         if (commitHash) {
-          compareRef = `${commitHash}~1`;
+          if (commitHash === 'UNCOMMITTED') {
+            compareRef = 'HEAD';
+          } else {
+            compareRef = `${commitHash}~1`;
+          }
         } else if (!compareRef) {
           vscode.window.showWarningMessage('No compare reference computed yet. Refresh first.');
           return;
@@ -236,7 +264,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const filePath = changedFile.path;
         let rightUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
-        if (commitHash) {
+        if (commitHash && commitHash !== 'UNCOMMITTED') {
           rightUri = createGitUri(workspaceRoot, filePath, commitHash);
         }
 
@@ -259,7 +287,11 @@ export async function activate(context: vscode.ExtensionContext) {
         
         let title = `${path.basename(filePath)} (${changedFilesProvider.getCompareLabel()} ↔ Working)`;
         if (commitHash) {
-          title = `${path.basename(filePath)} (Commit ${commitHash.substring(0, 7)})`;
+          if (commitHash === 'UNCOMMITTED') {
+            title = `${path.basename(filePath)} (Work in progress)`;
+          } else {
+            title = `${path.basename(filePath)} (Commit ${commitHash.substring(0, 7)})`;
+          }
         }
 
         await vscode.commands.executeCommand('vscode.diff', baseUri, rightUri, title);

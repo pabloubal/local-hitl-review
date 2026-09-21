@@ -2,14 +2,28 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension",
-      "type": "extensionHost",
+      "name": "Launch Standard VS Code",
+      "type": "node",
       "request": "launch",
+      "runtimeExecutable": "code",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
-      "outFiles": ["${workspaceFolder}/out/**/*.js"],
-      "preLaunchTask": "npm: build"
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: build",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Attach to Standard VS Code (Advanced)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "restart": true,
+      "outFiles": [
+        "${workspaceFolder}/out/**/*.js"
+      ]
     }
   ]
 }
