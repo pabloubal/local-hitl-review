@@ -28,7 +28,7 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
 
   private repos: RepoState[] = [];
   private isTreeView: boolean = true;
-  private compareMode: CompareMode = { type: 'branch' };
+  private compareMode: CompareMode;
   private globalBaseBranch: string = '';
   private disposables: vscode.Disposable[] = [];
 
@@ -36,6 +36,9 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
     private readonly workspaceRoot: string
   ) {
     vscode.commands.executeCommand('setContext', 'vscodeComment.isTreeView', this.isTreeView);
+    const config = vscode.workspace.getConfiguration('vscodeComment');
+    const defaultMode = config.get<string>('defaultCompareMode') === 'commits' ? 'commits' : 'branch';
+    this.compareMode = { type: defaultMode };
   }
 
   async initialize(): Promise<void> {
@@ -267,8 +270,19 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
 
     for (const [folderName, folderFiles] of folderGroups.entries()) {
       const currentPrefix = parentPrefix ? `${parentPrefix}/${folderName}` : folderName;
-      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix, commitHash, gitService);
-      nodes.push(new FolderItem(folderName, currentPrefix, children));
+      let children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix, commitHash, gitService);
+      
+      let compactName = folderName;
+      let compactPrefix = currentPrefix;
+      
+      while (children.length === 1 && children[0] instanceof FolderItem) {
+        const onlyChild = children[0];
+        compactName = `${compactName}/${onlyChild.name}`;
+        compactPrefix = onlyChild.relativePath;
+        children = onlyChild.children;
+      }
+      
+      nodes.push(new FolderItem(compactName, compactPrefix, children));
     }
 
     for (const file of rootFiles) {
@@ -314,10 +328,10 @@ export class ChangedFileItem extends vscode.TreeItem {
     const label = inTree ? path.basename(changedFile.path) : changedFile.path;
     super(label, vscode.TreeItemCollapsibleState.None);
 
-    this.iconPath = STATUS_ICONS[changedFile.status] ?? STATUS_ICONS.M;
+    // iconPath is removed to let VS Code show the file icon based on resourceUri
     this.description = changedFile.originalPath ? `← ${changedFile.originalPath}` : undefined;
     this.tooltip = `${changedFile.status} ${changedFile.path}`;
-    this.resourceUri = vscode.Uri.file(path.join(workspaceRoot, changedFile.path));
+    this.resourceUri = vscode.Uri.file(path.join(workspaceRoot, changedFile.path)).with({ scheme: 'vscode-comment-review', query: changedFile.status });
 
     this.command = {
       command: 'vscodeComment.openDiff',
@@ -365,5 +379,18 @@ export class WorkInProgressItem extends vscode.TreeItem {
     this.description = `${filesCount} uncommitted changes`;
     this.iconPath = new vscode.ThemeIcon('files');
     this.contextValue = 'workInProgressItem';
+  }
+}
+
+export class ReviewFileDecorationProvider implements vscode.FileDecorationProvider {
+  provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
+    if (uri.scheme === 'vscode-comment-review') {
+      const status = uri.query;
+      if (status === 'A') return new vscode.FileDecoration('A', 'Added', new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
+      if (status === 'M') return new vscode.FileDecoration('M', 'Modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
+      if (status === 'D') return new vscode.FileDecoration('D', 'Deleted', new vscode.ThemeColor('gitDecoration.deletedResourceForeground'));
+      if (status === 'R') return new vscode.FileDecoration('R', 'Renamed', new vscode.ThemeColor('gitDecoration.renamedResourceForeground'));
+      if (status === 'C') return new vscode.FileDecoration('C', 'Copied', new vscode.ThemeColor('gitDecoration.addedResourceForeground'));
+    }
   }
 }

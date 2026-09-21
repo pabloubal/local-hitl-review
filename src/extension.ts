@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { GitService } from './gitService.js';
 import { FeedbackStore } from './feedbackStore.js';
-import { ChangedFilesProvider } from './changedFilesProvider.js';
+import { ChangedFilesProvider, ReviewFileDecorationProvider } from './changedFilesProvider.js';
 import { ReviewCommentController } from './commentController.js';
 import { outputChannel, log } from './logger.js';
 import type { ChangedFile } from './types.js';
@@ -23,6 +23,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // --- Changed Files TreeView ---
   const changedFilesProvider = new ChangedFilesProvider(workspaceRoot);
   await changedFilesProvider.initialize();
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(new ReviewFileDecorationProvider()));
+
   const treeView = vscode.window.createTreeView('vscodeComment.changedFiles', {
     treeDataProvider: changedFilesProvider,
     showCollapseAll: false,

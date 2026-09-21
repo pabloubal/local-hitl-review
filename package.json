@@ -301,6 +301,12 @@
           "default": "",
           "description": "Base branch to compare against (e.g. 'main'). Leave empty to auto-detect."
         },
+        "vscodeComment.defaultCompareMode": {
+          "type": "string",
+          "enum": ["branch", "commits"],
+          "default": "branch",
+          "description": "Default view mode when the extension loads: 'branch' (all changes vs base) or 'commits' (graph of commits)."
+        },
         "vscodeComment.agentsFile": {
           "type": "string",
           "default": "AGENTS.md",
