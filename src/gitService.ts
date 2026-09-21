@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
  * All commands run against a specific repository root.
  */
 export class GitService {
-  constructor(private readonly repoRoot: string) {}
+  constructor(public readonly repoRoot: string) {}
 
   /**
    * Find the merge-base (common ancestor) between HEAD and a base branch.

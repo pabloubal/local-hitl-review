@@ -1,90 +1,124 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
 import { GitService } from './gitService.js';
-import type { ChangedFile, FileStatus } from './types.js';
+import type { ChangedFile, FileStatus, GitCommit } from './types.js';
 
-/**
- * Compare mode determines what set of changes to show.
- */
 export type CompareMode =
-  | { type: 'branch' }                         // All changes: merge-base → working tree
-  | { type: 'commit'; hash: string; label: string }  // Since a specific commit → working tree
-  | { type: 'commits' };                        // Graph view of commits
+  | { type: 'branch' }
+  | { type: 'commit'; hash: string; label: string }
+  | { type: 'commits' };
 
-export type ReviewTreeNode = ChangedFileItem | FolderItem | CommitItem | WorkInProgressItem;
+export type ReviewTreeNode = RepositoryItem | ChangedFileItem | FolderItem | CommitItem | WorkInProgressItem;
 
-/**
- * TreeView data provider that shows files changed based on the
- * selected compare mode (entire branch, since commit, or uncommitted).
- */
-export class ChangedFilesProvider
-  implements vscode.TreeDataProvider<ReviewTreeNode>, vscode.Disposable
-{
+interface RepoState {
+  gitService: GitService;
+  name: string;
+  relativePath: string;
+  changedFiles: ChangedFile[];
+  commits: GitCommit[];
+  uncommittedFiles: ChangedFile[];
+  baseBranch: string;
+  compareRef: string;
+}
+
+export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeNode>, vscode.Disposable {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private changedFiles: ChangedFile[] = [];
-  private commits: import('./types.js').GitCommit[] = [];
-  private uncommittedFiles: ChangedFile[] = [];
+  private repos: RepoState[] = [];
   private isTreeView: boolean = true;
-  private compareRef: string = '';  // The ref we're comparing against (for diff URIs)
-  private baseBranch: string = '';
   private compareMode: CompareMode = { type: 'branch' };
+  private globalBaseBranch: string = '';
   private disposables: vscode.Disposable[] = [];
 
   constructor(
-    private readonly gitService: GitService,
     private readonly workspaceRoot: string
   ) {
-    // Initialize context state
     vscode.commands.executeCommand('setContext', 'vscodeComment.isTreeView', this.isTreeView);
   }
 
-  /**
-   * Refresh the list of changed files based on the current compare mode.
-   */
+  async initialize(): Promise<void> {
+    const gitRoots = await this.discoverGitRepos(this.workspaceRoot);
+    for (const root of gitRoots) {
+      const gitService = new GitService(root);
+      const name = path.basename(root);
+      const relativePath = path.relative(this.workspaceRoot, root).replace(/\\/g, '/');
+      this.repos.push({
+        gitService,
+        name: relativePath === '' ? name : relativePath,
+        relativePath,
+        changedFiles: [],
+        commits: [],
+        uncommittedFiles: [],
+        baseBranch: '',
+        compareRef: '',
+      });
+    }
+  }
+
+  private async discoverGitRepos(workspaceRoot: string): Promise<string[]> {
+    const repos: string[] = [];
+    try {
+      try {
+        await fs.access(path.join(workspaceRoot, '.git'));
+        repos.push(workspaceRoot);
+        return repos; // If root is a repo, assume single repo mode
+      } catch {}
+
+      const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          try {
+            await fs.access(path.join(workspaceRoot, entry.name, '.git'));
+            repos.push(path.join(workspaceRoot, entry.name));
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.error('Error discovering git repos', e);
+    }
+    return Array.from(new Set(repos));
+  }
+
   async refresh(baseBranch?: string): Promise<void> {
     try {
       if (baseBranch) {
-        this.baseBranch = baseBranch;
-      } else if (!this.baseBranch) {
-        const config = vscode.workspace.getConfiguration('vscodeComment');
-        const configured = config.get<string>('baseBranch');
-        if (configured) {
-          this.baseBranch = configured;
-        } else {
-          const detected = await this.gitService.detectBaseBranch();
-          if (detected) {
-            this.baseBranch = detected;
-          } else {
-            vscode.window.showWarningMessage(
-              'Local HITL Review: Could not detect base branch. Use "Select Base Branch" to set one.'
-            );
-            this.changedFiles = [];
-            this._onDidChangeTreeData.fire();
-            return;
-          }
-        }
+        this.globalBaseBranch = baseBranch;
       }
 
-      switch (this.compareMode.type) {
-        case 'branch': {
-          this.compareRef = await this.gitService.getMergeBase(this.baseBranch);
-          this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
-          break;
+      for (const repo of this.repos) {
+        if (!this.globalBaseBranch) {
+          const config = vscode.workspace.getConfiguration('vscodeComment');
+          const configured = config.get<string>('baseBranch');
+          if (configured) {
+            repo.baseBranch = configured;
+          } else {
+            const detected = await repo.gitService.detectBaseBranch();
+            repo.baseBranch = detected || 'main'; // fallback
+          }
+        } else {
+          repo.baseBranch = this.globalBaseBranch;
         }
-        case 'commit': {
-          this.compareRef = this.compareMode.hash;
-          // Diff from that commit to working tree
-          this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
-          break;
-        }
-        case 'commits': {
-          this.compareRef = await this.gitService.getMergeBase(this.baseBranch);
-          this.commits = await this.gitService.listCommits(this.baseBranch);
-          this.uncommittedFiles = await this.gitService.getUncommittedChanges();
-          this.changedFiles = await this.gitService.getChangedFiles(this.compareRef);
-          break;
+
+        switch (this.compareMode.type) {
+          case 'branch': {
+            repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
+            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+            break;
+          }
+          case 'commit': {
+            repo.compareRef = this.compareMode.hash;
+            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+            break;
+          }
+          case 'commits': {
+            repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
+            repo.commits = await repo.gitService.listCommits(repo.baseBranch);
+            repo.uncommittedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getUncommittedChanges());
+            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+            break;
+          }
         }
       }
 
@@ -92,75 +126,65 @@ export class ChangedFilesProvider
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       vscode.window.showErrorMessage(`Local HITL Review: Failed to get changes — ${message}`);
-      this.changedFiles = [];
+      for (const repo of this.repos) repo.changedFiles = [];
       this._onDidChangeTreeData.fire();
     }
   }
 
-  /**
-   * Set the compare mode and refresh.
-   */
+  private toWorkspaceRelative(repo: RepoState, files: ChangedFile[]): ChangedFile[] {
+    if (!repo.relativePath) return files;
+    
+    return files.map(f => {
+      const p = `${repo.relativePath}/${f.path}`;
+      const o = f.originalPath ? `${repo.relativePath}/${f.originalPath}` : undefined;
+      return { ...f, path: p, originalPath: o, repoRoot: repo.gitService.repoRoot };
+    });
+  }
+
   async setCompareMode(mode: CompareMode): Promise<void> {
     this.compareMode = mode;
     await this.refresh();
   }
 
-  /**
-   * Get the current compare mode.
-   */
   getCompareMode(): CompareMode {
     return this.compareMode;
   }
 
-  /**
-   * Get the ref being compared against (for diff URIs).
-   */
-  getCompareRef(): string {
-    return this.compareRef;
+  getCompareRef(repoRoot?: string): string {
+    if (!repoRoot && this.repos.length === 1) return this.repos[0].compareRef;
+    const repo = this.repos.find(r => r.gitService.repoRoot === repoRoot);
+    return repo?.compareRef || '';
   }
 
-  /**
-   * Toggle between Tree View and List View.
-   */
   toggleTreeView(isTree: boolean): void {
     this.isTreeView = isTree;
     vscode.commands.executeCommand('setContext', 'vscodeComment.isTreeView', this.isTreeView);
     this._onDidChangeTreeData.fire();
   }
 
-  /**
-   * Get the current base branch name.
-   */
   getBaseBranch(): string {
-    return this.baseBranch;
+    return this.globalBaseBranch || (this.repos.length > 0 ? this.repos[0].baseBranch : '');
   }
 
-  /**
-   * Get a human-readable label for the current compare mode.
-   */
   getCompareLabel(): string {
+    const base = this.getBaseBranch();
     switch (this.compareMode.type) {
-      case 'branch':
-        return `vs ${this.baseBranch}`;
-      case 'commit':
-        return `since ${this.compareMode.label}`;
-      case 'commits':
-        return `commits vs ${this.baseBranch}`;
+      case 'branch': return `vs ${base}`;
+      case 'commit': return `since ${this.compareMode.label}`;
+      case 'commits': return `commits vs ${base}`;
     }
   }
 
-  /**
-   * Get all changed file paths (repo-relative).
-   */
   getChangedFilePaths(): string[] {
-    return this.changedFiles.map((f) => f.path);
+    return this.repos.flatMap(r => r.changedFiles.map(f => f.path));
   }
 
-  /**
-   * Get all changed files.
-   */
-  getChangedFiles(): import('./types.js').ChangedFile[] {
-    return this.changedFiles;
+  getChangedFiles(): ChangedFile[] {
+    return this.repos.flatMap(r => r.changedFiles);
+  }
+
+  getFirstGitService(): GitService | undefined {
+    return this.repos.length > 0 ? this.repos[0].gitService : undefined;
   }
 
   getTreeItem(element: ReviewTreeNode): vscode.TreeItem {
@@ -169,50 +193,62 @@ export class ChangedFilesProvider
 
   async getChildren(element?: ReviewTreeNode): Promise<ReviewTreeNode[]> {
     if (!element) {
-      if (this.compareMode.type === 'commits') {
-        const nodes: ReviewTreeNode[] = [];
-        if (this.uncommittedFiles.length > 0) {
-          nodes.push(new WorkInProgressItem(this.uncommittedFiles.length));
-        }
-        nodes.push(...this.commits.map((commit) => new CommitItem(commit)));
-        return nodes;
-      }
-      if (!this.isTreeView) {
-        return this.changedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false));
+      if (this.repos.length === 0) return [];
+      
+      if (this.repos.length === 1) {
+        return this.getRepoChildren(this.repos[0]);
       } else {
-        return this.buildTreeNodes(this.changedFiles);
+        return this.repos.map(r => new RepositoryItem(r));
       }
+    } else if (element instanceof RepositoryItem) {
+      return this.getRepoChildren(element.repo);
     } else if (element instanceof FolderItem) {
       return element.children;
     } else if (element instanceof CommitItem) {
       const commitHash = element.commit.hash;
-      const files = await this.gitService.getCommitChanges(commitHash);
+      const files = await element.gitService.getCommitChanges(commitHash);
+      const relativeFiles = this.toWorkspaceRelative(element.repo, files);
       if (!this.isTreeView) {
-        return files.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, commitHash));
+        return relativeFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, commitHash, element.gitService));
       } else {
-        return this.buildTreeNodes(files, commitHash);
+        return this.buildTreeNodes(relativeFiles, commitHash, element.gitService);
       }
     } else if (element instanceof WorkInProgressItem) {
       if (!this.isTreeView) {
-        return this.uncommittedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, 'UNCOMMITTED'));
+        return element.repo.uncommittedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, 'UNCOMMITTED', element.gitService));
       } else {
-        return this.buildTreeNodes(this.uncommittedFiles, 'UNCOMMITTED');
+        return this.buildTreeNodes(element.repo.uncommittedFiles, 'UNCOMMITTED', element.gitService);
       }
     }
     return [];
   }
 
-  private buildTreeNodes(files: ChangedFile[], commitHash?: string): ReviewTreeNode[] {
-    return this.buildTreeLevel(files, 0, '', commitHash);
+  private getRepoChildren(repo: RepoState): ReviewTreeNode[] {
+    if (this.compareMode.type === 'commits') {
+      const nodes: ReviewTreeNode[] = [];
+      if (repo.uncommittedFiles.length > 0) {
+        nodes.push(new WorkInProgressItem(repo.uncommittedFiles.length, repo.gitService, repo));
+      }
+      nodes.push(...repo.commits.map((commit) => new CommitItem(commit, repo.gitService, repo)));
+      return nodes;
+    }
+    if (!this.isTreeView) {
+      return repo.changedFiles.map((file) => new ChangedFileItem(file, this.workspaceRoot, false, undefined, repo.gitService));
+    } else {
+      return this.buildTreeNodes(repo.changedFiles, undefined, repo.gitService);
+    }
   }
 
-  private buildTreeLevel(files: ChangedFile[], depth: number, parentPrefix: string, commitHash?: string): ReviewTreeNode[] {
+  private buildTreeNodes(files: ChangedFile[], commitHash?: string, gitService?: GitService): ReviewTreeNode[] {
+    return this.buildTreeLevel(files, 0, '', commitHash, gitService);
+  }
+
+  private buildTreeLevel(files: ChangedFile[], depth: number, parentPrefix: string, commitHash?: string, gitService?: GitService): ReviewTreeNode[] {
     const nodes: ReviewTreeNode[] = [];
     const folderGroups = new Map<string, ChangedFile[]>();
     const rootFiles: ChangedFile[] = [];
 
     for (const file of files) {
-      // Ensure file path matches the parent prefix (for safety, though they should)
       if (parentPrefix && !file.path.startsWith(parentPrefix + '/')) continue;
       
       const relativePath = parentPrefix ? file.path.substring(parentPrefix.length + 1) : file.path;
@@ -231,12 +267,12 @@ export class ChangedFilesProvider
 
     for (const [folderName, folderFiles] of folderGroups.entries()) {
       const currentPrefix = parentPrefix ? `${parentPrefix}/${folderName}` : folderName;
-      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix, commitHash);
+      const children = this.buildTreeLevel(folderFiles, depth + 1, currentPrefix, commitHash, gitService);
       nodes.push(new FolderItem(folderName, currentPrefix, children));
     }
 
     for (const file of rootFiles) {
-      nodes.push(new ChangedFileItem(file, this.workspaceRoot, true, commitHash));
+      nodes.push(new ChangedFileItem(file, this.workspaceRoot, true, commitHash, gitService));
     }
 
     return nodes;
@@ -250,8 +286,6 @@ export class ChangedFilesProvider
   }
 }
 
-// --- TreeItem ---
-
 const STATUS_ICONS: Record<FileStatus, vscode.ThemeIcon> = {
   M: new vscode.ThemeIcon('diff-modified', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground')),
   A: new vscode.ThemeIcon('diff-added', new vscode.ThemeColor('gitDecoration.addedResourceForeground')),
@@ -260,30 +294,36 @@ const STATUS_ICONS: Record<FileStatus, vscode.ThemeIcon> = {
   C: new vscode.ThemeIcon('diff-added', new vscode.ThemeColor('gitDecoration.addedResourceForeground')),
 };
 
+export class RepositoryItem extends vscode.TreeItem {
+  constructor(public readonly repo: RepoState) {
+    super(repo.name, vscode.TreeItemCollapsibleState.Expanded);
+    this.contextValue = 'repository';
+    this.iconPath = new vscode.ThemeIcon('repo');
+    this.tooltip = `Repository: ${repo.gitService.repoRoot}`;
+  }
+}
+
 export class ChangedFileItem extends vscode.TreeItem {
   constructor(
     public readonly changedFile: ChangedFile,
     workspaceRoot: string,
     inTree: boolean,
-    public readonly commitHash?: string
+    public readonly commitHash?: string,
+    public readonly gitService?: GitService
   ) {
     const label = inTree ? path.basename(changedFile.path) : changedFile.path;
     super(label, vscode.TreeItemCollapsibleState.None);
 
     this.iconPath = STATUS_ICONS[changedFile.status] ?? STATUS_ICONS.M;
-    this.description = changedFile.originalPath
-      ? `← ${changedFile.originalPath}`
-      : undefined;
+    this.description = changedFile.originalPath ? `← ${changedFile.originalPath}` : undefined;
     this.tooltip = `${changedFile.status} ${changedFile.path}`;
     this.resourceUri = vscode.Uri.file(path.join(workspaceRoot, changedFile.path));
 
-    // Click opens the diff
     this.command = {
       command: 'vscodeComment.openDiff',
       title: 'Open Diff',
-      arguments: [changedFile, commitHash],
+      arguments: [changedFile, commitHash, gitService],
     };
-
     this.contextValue = 'changedFileItem';
   }
 }
@@ -302,19 +342,25 @@ export class FolderItem extends vscode.TreeItem {
 }
 
 export class CommitItem extends vscode.TreeItem {
-  constructor(public readonly commit: import('./types.js').GitCommit) {
+  constructor(
+    public readonly commit: GitCommit,
+    public readonly gitService: GitService,
+    public readonly repo: RepoState
+  ) {
     super(commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
-
     this.description = `${commit.author} • ${commit.date}`;
     this.tooltip = `${commit.shortHash} - ${commit.subject}\nBy ${commit.author} (${commit.date})`;
     this.iconPath = new vscode.ThemeIcon('git-commit', new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'));
-
     this.contextValue = 'commitItem';
   }
 }
 
 export class WorkInProgressItem extends vscode.TreeItem {
-  constructor(public readonly filesCount: number) {
+  constructor(
+    public readonly filesCount: number,
+    public readonly gitService: GitService,
+    public readonly repo: RepoState
+  ) {
     super('Work in progress', vscode.TreeItemCollapsibleState.Collapsed);
     this.description = `${filesCount} uncommitted changes`;
     this.iconPath = new vscode.ThemeIcon('files');

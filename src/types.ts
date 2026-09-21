@@ -25,6 +25,8 @@ export interface ChangedFile {
   status: FileStatus;
   /** For renames: the original path */
   originalPath?: string;
+  /** The absolute path to the repository this file belongs to (added for multi-repo support) */
+  repoRoot?: string;
 }
 
 export interface GitCommit {

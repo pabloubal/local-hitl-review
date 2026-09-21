@@ -17,12 +17,12 @@ export async function activate(context: vscode.ExtensionContext) {
   const workspaceRoot = workspaceFolder.uri.fsPath;
 
   // --- Services ---
-  const gitService = new GitService(workspaceRoot);
   const store = new FeedbackStore(workspaceRoot);
   await store.initialize();
 
   // --- Changed Files TreeView ---
-  const changedFilesProvider = new ChangedFilesProvider(gitService, workspaceRoot);
+  const changedFilesProvider = new ChangedFilesProvider(workspaceRoot);
+  await changedFilesProvider.initialize();
   const treeView = vscode.window.createTreeView('vscodeComment.changedFiles', {
     treeDataProvider: changedFilesProvider,
     showCollapseAll: false,
@@ -65,6 +65,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // Select base branch
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.selectBaseBranch', async () => {
+      const gitService = changedFilesProvider.getFirstGitService();
+      if (!gitService) { vscode.window.showErrorMessage('No git repository found'); return; }
       const branches = await gitService.listBranches();
       const currentBranch = await gitService.getCurrentBranch();
       const items = branches
@@ -157,22 +159,19 @@ export async function activate(context: vscode.ExtensionContext) {
   // Open all changes in a multi-file diff editor
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.openAllChanges', async () => {
-      const compareRef = changedFilesProvider.getCompareRef();
-      if (!compareRef) {
-        vscode.window.showWarningMessage('No compare reference computed yet. Refresh first.');
-        return;
-      }
+      // Check if we have changes before checking compareRef, as compareRef is per-repo now
       const files = changedFilesProvider.getChangedFiles();
       if (files.length === 0) {
         vscode.window.showInformationMessage('No changes to show.');
         return;
       }
-      
       const resources: any[] = [];
       for (const f of files) {
         const filePath = f.path;
         const originalPath = f.originalPath ?? filePath;
         const workingUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+        const compareRef = changedFilesProvider.getCompareRef(f.repoRoot);
+        if (!compareRef) { vscode.window.showWarningMessage('No compare reference for ' + f.path); continue; }
         const baseUri = createGitUri(workspaceRoot, originalPath, compareRef);
         
         let title = path.basename(filePath);
@@ -196,17 +195,21 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.openCommitChanges', async (item: any) => {
       if (item.contextValue === 'workInProgressItem') {
-        const files = await gitService.getUncommittedChanges();
+        const itemGitService: GitService = item.gitService;
+        if (!itemGitService) return;
+        const files = await itemGitService.getUncommittedChanges();
         if (files.length === 0) {
           vscode.window.showInformationMessage('No uncommitted changes.');
           return;
         }
+        const relativePrefix = require('node:path').relative(workspaceRoot, itemGitService.repoRoot).replace(/\\/g, '/');
+        const toWorkspacePath = (p: string) => relativePrefix ? `${relativePrefix}/${p}` : p;
         const resources: any[] = [];
         for (const f of files) {
-          const filePath = f.path;
-          const originalPath = f.originalPath ?? filePath;
+          const filePath = toWorkspacePath(f.path);
+          const originalPath = toWorkspacePath(f.originalPath ?? f.path);
           const baseUri = createGitUri(workspaceRoot, originalPath, 'HEAD');
-          const currentUri = vscode.Uri.file(path.join(workspaceRoot, filePath));
+          const currentUri = vscode.Uri.file(require('node:path').join(workspaceRoot, filePath));
           
           resources.push([
             currentUri,
@@ -219,16 +222,20 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       const commit = item.commit;
-      const files = await gitService.getCommitChanges(commit.hash);
+      const itemGitService: GitService = item.gitService;
+      if (!itemGitService) return;
+      const files = await itemGitService.getCommitChanges(commit.hash);
       if (files.length === 0) {
         vscode.window.showInformationMessage('No changes in this commit.');
         return;
       }
       
+      const relativePrefix = require('node:path').relative(workspaceRoot, itemGitService.repoRoot).replace(/\\/g, '/');
+      const toWorkspacePath = (p: string) => relativePrefix ? `${relativePrefix}/${p}` : p;
       const resources: any[] = [];
       for (const f of files) {
-        const filePath = f.path;
-        const originalPath = f.originalPath ?? filePath;
+        const filePath = toWorkspacePath(f.path);
+        const originalPath = toWorkspacePath(f.originalPath ?? f.path);
         
         const baseUri = createGitUri(workspaceRoot, originalPath, `${commit.hash}~1`);
         const commitUri = createGitUri(workspaceRoot, filePath, commit.hash);
@@ -250,7 +257,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       'vscodeComment.openDiff',
       async (changedFile: ChangedFile, commitHash?: string) => {
-        let compareRef = changedFilesProvider.getCompareRef();
+        let compareRef = changedFilesProvider.getCompareRef(changedFile.repoRoot);
         if (commitHash) {
           if (commitHash === 'UNCOMMITTED') {
             compareRef = 'HEAD';
