@@ -1,3 +1,10 @@
+# [0.7.0](https://github.com/pabloubal/local-hitl-review/compare/v0.6.0...v0.7.0) (2026-09-21)
+
+
+### Features
+
+* add defaultCompareMode configuration, compact tree folders, and native file decorations ([95fb068](https://github.com/pabloubal/local-hitl-review/commit/95fb0689dd7f9892c1a9ac9d9050356c3e5c1608))
+
 # [0.6.0](https://github.com/pabloubal/local-hitl-review/compare/v0.5.0...v0.6.0) (2026-09-21)
 
 

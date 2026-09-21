@@ -2,7 +2,7 @@
   "name": "local-hitl-review",
   "displayName": "Local HITL Review",
   "description": "Human-in-the-loop local code reviews without needing Draft PRs",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "publisher": "pablo",
   "license": "MIT",
   "repository": {
@@ -303,7 +303,10 @@
         },
         "vscodeComment.defaultCompareMode": {
           "type": "string",
-          "enum": ["branch", "commits"],
+          "enum": [
+            "branch",
+            "commits"
+          ],
           "default": "branch",
           "description": "Default view mode when the extension loads: 'branch' (all changes vs base) or 'commits' (graph of commits)."
         },
