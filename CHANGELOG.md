@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/pabloubal/local-hitl-review/compare/v0.5.0...v0.6.0) (2026-09-21)
+
+
+### Features
+
+* add multi-repository support across git service and changed files provider ([01a1eb9](https://github.com/pabloubal/local-hitl-review/commit/01a1eb91c652b26679101c288715a4b4f213866a))
+
 # [0.5.0](https://github.com/pabloubal/local-hitl-review/compare/v0.4.0...v0.5.0) (2026-09-21)
 
 
