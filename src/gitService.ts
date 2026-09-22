@@ -25,8 +25,22 @@ export class GitService {
    * Uses diff against the merge-base to capture all branch changes.
    */
   async getChangedFiles(mergeBase: string): Promise<ChangedFile[]> {
-    const { stdout } = await this.git('diff', '--name-status', mergeBase);
-    return this.parseNameStatus(stdout);
+    const { stdout: diffStdout } = await this.git('diff', '--name-status', mergeBase);
+    const files = this.parseNameStatus(diffStdout);
+    
+    // Include untracked files
+    try {
+      const { stdout: untrackedStdout } = await this.git('ls-files', '--others', '--exclude-standard');
+      for (const line of untrackedStdout.split('\n')) {
+        if (line.trim()) {
+          files.push({ path: line.trim(), status: 'A' });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    
+    return files;
   }
 
   /**
@@ -125,8 +139,22 @@ export class GitService {
    * Get uncommitted changes (staged + unstaged vs HEAD).
    */
   async getUncommittedChanges(): Promise<ChangedFile[]> {
-    const { stdout } = await this.git('diff', '--name-status', 'HEAD');
-    return this.parseNameStatus(stdout);
+    const { stdout: diffStdout } = await this.git('diff', '--name-status', 'HEAD');
+    const files = this.parseNameStatus(diffStdout);
+    
+    // Include untracked files
+    try {
+      const { stdout: untrackedStdout } = await this.git('ls-files', '--others', '--exclude-standard');
+      for (const line of untrackedStdout.split('\n')) {
+        if (line.trim()) {
+          files.push({ path: line.trim(), status: 'A' });
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    
+    return files;
   }
 
   private async git(...args: string[]): Promise<{ stdout: string; stderr: string }> {

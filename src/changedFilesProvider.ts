@@ -20,6 +20,7 @@ interface RepoState {
   uncommittedFiles: ChangedFile[];
   baseBranch: string;
   compareRef: string;
+  currentBranch: string;
 }
 
 export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeNode>, vscode.Disposable {
@@ -56,30 +57,34 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
         uncommittedFiles: [],
         baseBranch: '',
         compareRef: '',
+        currentBranch: '',
       });
     }
   }
 
-  private async discoverGitRepos(workspaceRoot: string): Promise<string[]> {
+  private async discoverGitRepos(primaryWorkspaceRoot: string): Promise<string[]> {
     const repos: string[] = [];
-    try {
+    const folders = vscode.workspace.workspaceFolders || [];
+    for (const folder of folders) {
+      const root = folder.uri.fsPath;
       try {
-        await fs.access(path.join(workspaceRoot, '.git'));
-        repos.push(workspaceRoot);
-        return repos; // If root is a repo, assume single repo mode
-      } catch {}
+        try {
+          await fs.access(path.join(root, '.git'));
+          repos.push(root);
+        } catch {}
 
-      const entries = await fs.readdir(workspaceRoot, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          try {
-            await fs.access(path.join(workspaceRoot, entry.name, '.git'));
-            repos.push(path.join(workspaceRoot, entry.name));
-          } catch {}
+        const entries = await fs.readdir(root, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            try {
+              await fs.access(path.join(root, entry.name, '.git'));
+              repos.push(path.join(root, entry.name));
+            } catch {}
+          }
         }
+      } catch (e) {
+        console.error('Error discovering git repos in ' + root, e);
       }
-    } catch (e) {
-      console.error('Error discovering git repos', e);
     }
     return Array.from(new Set(repos));
   }
@@ -91,6 +96,8 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
       }
 
       for (const repo of this.repos) {
+        repo.currentBranch = await repo.gitService.getCurrentBranch().catch(() => '');
+
         if (!this.globalBaseBranch) {
           const config = vscode.workspace.getConfiguration('vscodeComment');
           const configured = config.get<string>('baseBranch');
@@ -313,7 +320,8 @@ export class RepositoryItem extends vscode.TreeItem {
     super(repo.name, vscode.TreeItemCollapsibleState.Expanded);
     this.contextValue = 'repository';
     this.iconPath = new vscode.ThemeIcon('repo');
-    this.tooltip = `Repository: ${repo.gitService.repoRoot}`;
+    this.description = repo.currentBranch;
+    this.tooltip = `Repository: ${repo.gitService.repoRoot}\nBranch: ${repo.currentBranch}`;
   }
 }
 
