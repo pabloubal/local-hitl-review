@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/pabloubal/local-hitl-review/compare/v0.7.0...v0.8.0) (2026-09-22)
+
+
+### Features
+
+* include untracked files in git changes and display current branch in repository view ([ea21670](https://github.com/pabloubal/local-hitl-review/commit/ea2167003bf4b8c2466f816f07a4a662597b5c54))
+
 # [0.7.0](https://github.com/pabloubal/local-hitl-review/compare/v0.6.0...v0.7.0) (2026-09-21)
 
 
