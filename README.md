@@ -13,6 +13,9 @@ Tiny VS Code extension that keeps **the human in the loop** for AI code reviews,
 - **Draftless Reviews.** Review code locally before it ever leaves your machine.
 - **Agent-Ready Feedback.** Comments are saved seamlessly in a `.feedback` directory as structured Markdown, ready to be read and addressed by your AI coding agents.
 - **Native VS Code UI.** Uses VS Code's native Commenting API and Source Control views. Nothing new to learn.
+- **Multi-Repository Support.** Manage feedback seamlessly across multi-root workspaces.
+- **Commit History & Diffs.** View commit graphs and leave feedback on specific commits or work-in-progress changes.
+- **Copy Agent Prompt.** Generate and copy tailored prompts based on your feedback directly to your AI assistant.
 - **Privacy-first.** Everything happens locally on your machine.
 
 ### Installation
@@ -33,13 +36,34 @@ curl -sL $(curl -s https://api.github.com/repos/pabloubal/local-hitl-review/rele
 
 1. Open the **Source Control** view. You will see a new **Local HITL Review** panel.
 2. Click the **Initialize Feedback Workspace** button (folder icon) at the top of the panel to automatically scaffold your `.feedback` directory.
-3. Use the **Select Base Branch** button to choose which branch to compare against (e.g. `main`).
-4. Click on any changed file to open a Diff view. 
+3. Use the **Select Base Branch** button to choose which branch to compare against (e.g. `main`), or select specific commits from the commit history view.
+4. Click on any changed file in the tree to open a Diff view. 
 5. Click the `+` button in the gutter of the diff to leave a comment!
+6. Generate AI prompts using the **Copy Agent Prompt** command to easily hand off tasks to your AI coding assistants.
 
 ### How it Works
 
-When you leave a comment, it is saved as a Markdown file in the `.feedback/` directory at the root of your workspace. 
+The lifecycle of a review feedback loop flows seamlessly between you, the extension, and your AI Agent:
+
+```mermaid
+sequenceDiagram
+    participant Human as Human Reviewer
+    participant VSCode as Local HITL Review
+    participant FS as File System (.feedback/)
+    participant Agent as AI Coding Agent
+
+    Human->>VSCode: Reviews code diffs (WIP or Commit)
+    Human->>VSCode: Adds comment to code line
+    VSCode->>FS: Saves comment as structured Markdown
+    Human->>Agent: Triggers Agent with generated prompt
+    Agent->>FS: Reads Markdown files for feedback
+    Agent->>FS: Modifies codebase based on feedback
+    Agent->>FS: Updates Markdown file (status: acknowledged)
+    FS-->>VSCode: File watcher detects changes
+    VSCode-->>Human: UI updates in real-time to show resolved state
+```
+
+When you leave a comment, it is saved as a Markdown file in the `.feedback/` directory at the root of your workspace (or repository for multi-root setups). 
 
 ```markdown
 ---
