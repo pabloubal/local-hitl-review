@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/pabloubal/local-hitl-review/compare/v0.8.0...v0.9.0) (2026-09-23)
+
+
+### Features
+
+* add support for local feedback scope and multi-repository feedback management ([dd95eb8](https://github.com/pabloubal/local-hitl-review/commit/dd95eb851bb819937bb48a297dedae3a2e8b8d3a))
+
 # [0.8.0](https://github.com/pabloubal/local-hitl-review/compare/v0.7.0...v0.8.0) (2026-09-22)
 
 
