@@ -240,7 +240,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // Open all changes in a multi-file diff editor
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.openAllChanges', async () => {
-      // Check if we have changes before checking compareRef, as compareRef is per-repo now
+      // Load all lazy repos before getting all changes
+      await changedFilesProvider.loadAllRepos();
       const files = changedFilesProvider.getChangedFiles();
       if (files.length === 0) {
         vscode.window.showInformationMessage('No changes to show.');

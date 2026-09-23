@@ -23,6 +23,7 @@ interface RepoState {
   currentBranch: string;
   overrideBaseBranch?: string;
   overrideCompareMode?: CompareMode;
+  isLoaded?: boolean;
 }
 
 export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeNode>, vscode.Disposable {
@@ -103,40 +104,8 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
       for (const repo of this.repos) {
         repo.currentBranch = await repo.gitService.getCurrentBranch().catch(() => '');
 
-        if (repo.overrideBaseBranch) {
-          repo.baseBranch = repo.overrideBaseBranch;
-        } else if (!this.globalBaseBranch) {
-          const config = vscode.workspace.getConfiguration('vscodeComment');
-          const configured = config.get<string>('baseBranch');
-          if (configured) {
-            repo.baseBranch = configured;
-          } else {
-            const detected = await repo.gitService.detectBaseBranch();
-            repo.baseBranch = detected || 'main'; // fallback
-          }
-        } else {
-          repo.baseBranch = this.globalBaseBranch;
-        }
-
-        const mode = repo.overrideCompareMode || this.compareMode;
-        switch (mode.type) {
-          case 'branch': {
-            repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
-            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
-            break;
-          }
-          case 'commit': {
-            repo.compareRef = (mode as any).hash;
-            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
-            break;
-          }
-          case 'commits': {
-            repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
-            repo.commits = await repo.gitService.listCommits(repo.baseBranch);
-            repo.uncommittedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getUncommittedChanges());
-            repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
-            break;
-          }
+        if (this.repos.length === 1 || repo.isLoaded) {
+          await this.loadRepoChanges(repo);
         }
       }
 
@@ -147,6 +116,45 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
       for (const repo of this.repos) repo.changedFiles = [];
       this._onDidChangeTreeData.fire();
     }
+  }
+
+  public async loadRepoChanges(repo: RepoState): Promise<void> {
+    if (repo.overrideBaseBranch) {
+      repo.baseBranch = repo.overrideBaseBranch;
+    } else if (!this.globalBaseBranch) {
+      const config = vscode.workspace.getConfiguration('vscodeComment');
+      const configured = config.get<string>('baseBranch');
+      if (configured) {
+        repo.baseBranch = configured;
+      } else {
+        const detected = await repo.gitService.detectBaseBranch();
+        repo.baseBranch = detected || 'main'; // fallback
+      }
+    } else {
+      repo.baseBranch = this.globalBaseBranch;
+    }
+
+    const mode = repo.overrideCompareMode || this.compareMode;
+    switch (mode.type) {
+      case 'branch': {
+        repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
+        repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+        break;
+      }
+      case 'commit': {
+        repo.compareRef = (mode as any).hash;
+        repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+        break;
+      }
+      case 'commits': {
+        repo.compareRef = await repo.gitService.getMergeBase(repo.baseBranch);
+        repo.commits = await repo.gitService.listCommits(repo.baseBranch);
+        repo.uncommittedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getUncommittedChanges());
+        repo.changedFiles = this.toWorkspaceRelative(repo, await repo.gitService.getChangedFiles(repo.compareRef));
+        break;
+      }
+    }
+    repo.isLoaded = true;
   }
 
   public isFileViewed(repoRoot: string, commitOrBranch: string, filePath: string): boolean {
@@ -208,6 +216,14 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
     return this.repos.flatMap(r => r.changedFiles.map(f => f.path));
   }
 
+  async loadAllRepos(): Promise<void> {
+    for (const repo of this.repos) {
+      if (!repo.isLoaded) {
+        await this.loadRepoChanges(repo);
+      }
+    }
+  }
+
   getChangedFiles(): ChangedFile[] {
     return this.repos.flatMap(r => r.changedFiles);
   }
@@ -230,6 +246,9 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
         return this.repos.map(r => new RepositoryItem(r));
       }
     } else if (element instanceof RepositoryItem) {
+      if (!element.repo.isLoaded) {
+        await this.loadRepoChanges(element.repo);
+      }
       return this.getRepoChildren(element.repo);
     } else if (element instanceof FolderItem) {
       return element.children;
@@ -337,7 +356,7 @@ const STATUS_ICONS: Record<FileStatus, vscode.ThemeIcon> = {
 
 export class RepositoryItem extends vscode.TreeItem {
   constructor(public readonly repo: RepoState) {
-    super(repo.name, vscode.TreeItemCollapsibleState.Expanded);
+    super(repo.name, vscode.TreeItemCollapsibleState.Collapsed);
     this.contextValue = 'repository';
     this.iconPath = new vscode.ThemeIcon('repo');
     this.description = repo.currentBranch;
