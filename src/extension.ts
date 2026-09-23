@@ -8,6 +8,13 @@ import { outputChannel, log } from './logger.js';
 import type { ChangedFile } from './types.js';
 import type { CompareMode } from './changedFilesProvider.js';
 
+
+class EmptyContentProvider implements vscode.TextDocumentContentProvider {
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    return '';
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (!workspaceFolder) {
@@ -17,13 +24,85 @@ export async function activate(context: vscode.ExtensionContext) {
   const workspaceRoot = workspaceFolder.uri.fsPath;
 
   // --- Services ---
+  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('empty', new EmptyContentProvider()));
   const store = new FeedbackStore(workspaceRoot);
   await store.initialize();
 
   // --- Changed Files TreeView ---
-  const changedFilesProvider = new ChangedFilesProvider(workspaceRoot);
+  const changedFilesProvider = new ChangedFilesProvider(workspaceRoot, context, store);
   await changedFilesProvider.initialize();
   context.subscriptions.push(vscode.window.registerFileDecorationProvider(new ReviewFileDecorationProvider()));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.repo.refresh', (item) => {
+      if (item && item.repo) {
+        // We could just refresh everything, or add a targeted refresh.
+        // For simplicity, we just trigger a full refresh but we can optimize later.
+        changedFilesProvider.refresh();
+      }
+    }),
+    vscode.commands.registerCommand('vscodeComment.repo.selectBaseBranch', async (item) => {
+      if (!item || !item.repo) return;
+      const branches = await item.repo.gitService.listBranches();
+      const current = await item.repo.gitService.getCurrentBranch();
+      const options = branches.filter((b: string) => b !== current);
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: `Select base branch for ${item.repo.name}`,
+      });
+      if (selected) {
+        item.repo.overrideBaseBranch = selected;
+        changedFilesProvider.refresh();
+      }
+    }),
+    vscode.commands.registerCommand('vscodeComment.repo.selectCompareMode', async (item) => {
+      if (!item || !item.repo) return;
+      const options = [
+        { label: 'Commits vs Base', description: 'Show graph of commits', mode: 'commits' as const },
+        { label: 'All Changes vs Base', description: 'Show single diff for all changes', mode: 'branch' as const }
+      ];
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: `Select compare mode for ${item.repo.name}`,
+      });
+      if (selected) {
+        item.repo.overrideCompareMode = { type: selected.mode };
+        changedFilesProvider.refresh();
+      }
+    }),
+    vscode.commands.registerCommand('vscodeComment.repo.openChanges', async (item) => {
+      if (!item || !item.repo) return;
+      const changes = item.repo.changedFiles;
+      if (changes.length === 0) {
+        vscode.window.showInformationMessage('No changes found.');
+        return;
+      }
+      for (const file of changes) {
+        vscode.commands.executeCommand('vscodeComment.openDiff', file, item.repo.compareRef, item.repo.gitService);
+      }
+    }),
+    vscode.commands.registerCommand('vscodeComment.repo.initFeedback', async (item) => {
+      if (!item || !item.repo) return;
+      // Force local folder creation for this repository, bypassing global scope
+      const dir = store.getFeedbackDirForRepo(item.repo.gitService.repoRoot, true);
+      await store.initializeDir(dir);
+      const agentsFile = store.getAgentsFilePath(item.repo.gitService.repoRoot, true);
+      const uri = vscode.Uri.file(agentsFile);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc);
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.file.markViewed', (item) => {
+      if (item && item.changedFile && item.gitService) {
+        changedFilesProvider.setFileViewed(item.gitService.repoRoot, item.commitHash || 'UNCOMMITTED', item.changedFile.originalPath || item.changedFile.path, true);
+      }
+    }),
+    vscode.commands.registerCommand('vscodeComment.file.unmarkViewed', (item) => {
+      if (item && item.changedFile && item.gitService) {
+        changedFilesProvider.setFileViewed(item.gitService.repoRoot, item.commitHash || 'UNCOMMITTED', item.changedFile.originalPath || item.changedFile.path, false);
+      }
+    })
+  );
 
   const treeView = vscode.window.createTreeView('vscodeComment.changedFiles', {
     treeDataProvider: changedFilesProvider,
@@ -131,7 +210,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Set feedback directory
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.setFeedbackDir', async () => {
-      const current = store.getFeedbackDir();
+      const current = store.getAllFeedbackDirs()[0]; // Fallback to first dir or we could ask which repo
       const relative = path.relative(workspaceRoot, current);
 
       const input = await vscode.window.showInputBox({
@@ -183,8 +262,8 @@ export async function activate(context: vscode.ExtensionContext) {
         
         resources.push([
           workingUri,
-          f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
-          f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : workingUri
+          f.status === 'A' ? vscode.Uri.parse('empty:empty') : baseUri,
+          f.status === 'D' ? vscode.Uri.parse('empty:empty') : workingUri
         ]);
       }
       
@@ -215,8 +294,8 @@ export async function activate(context: vscode.ExtensionContext) {
           
           resources.push([
             currentUri,
-            f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
-            f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : currentUri
+            f.status === 'A' ? vscode.Uri.parse('empty:empty') : baseUri,
+            f.status === 'D' ? vscode.Uri.parse('empty:empty') : currentUri
           ]);
         }
         await vscode.commands.executeCommand('vscode.changes', 'Work in progress', resources);
@@ -244,8 +323,8 @@ export async function activate(context: vscode.ExtensionContext) {
         
         resources.push([
           commitUri,
-          f.status === 'A' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : baseUri,
-          f.status === 'D' ? vscode.Uri.file(path.join(workspaceRoot, '.git', 'empty')) : commitUri
+          f.status === 'A' ? vscode.Uri.parse('empty:empty') : baseUri,
+          f.status === 'D' ? vscode.Uri.parse('empty:empty') : commitUri
         ]);
       }
       

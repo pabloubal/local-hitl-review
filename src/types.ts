@@ -17,6 +17,7 @@ export interface FeedbackComment {
   body: string;
   /** Unix timestamp (seconds) when the comment was created */
   timestamp: number;
+  repo?: string;
 }
 
 export interface ChangedFile {

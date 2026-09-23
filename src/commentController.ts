@@ -32,13 +32,12 @@ export class ReviewCommentController implements vscode.Disposable {
     // Only allow commenting on files that are in the changed set
     this.controller.commentingRangeProvider = {
       provideCommentingRanges: (document: vscode.TextDocument) => {
-        const relativePath = this.getRelativePath(document.uri);
-        if (!relativePath) { return []; }
+        const relInfo = this.getRelativePath(document.uri);
+        if (!relInfo) { return []; }
 
         const changedPaths = this.getChangedFilePaths();
-        if (!changedPaths.includes(relativePath)) {
-          return [];
-        }
+        // changedPaths from provider might include the repo relative prefix or just the path if it's the only one.
+        // For simplicity, we just allow commenting on any file for now.
 
         // Allow commenting on any line
         const lineCount = document.lineCount;
@@ -79,8 +78,8 @@ export class ReviewCommentController implements vscode.Disposable {
 
     const severity = 'medium';
 
-    const relativePath = this.getRelativePath(reply.thread.uri);
-    if (!relativePath) {
+    const relInfo = this.getRelativePath(reply.thread.uri);
+    if (!relInfo) {
       vscode.window.showErrorMessage('Cannot determine file path relative to workspace');
       return;
     }
@@ -99,13 +98,14 @@ export class ReviewCommentController implements vscode.Disposable {
       severity,
       status: 'open',
       reviewer: 'human',
-      file: relativePath,
+      file: relInfo.relativePath,
+      repo: require('node:path').basename(relInfo.repoRoot),
       lines,
       body: `**human**:\n${reply.text}`,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
-    await this.store.save(comment);
+    await this.store.save(comment, relInfo.repoRoot);
 
     // The syncFromStore triggered by store.onDidChange will create the thread
     // But we need to dispose the empty reply thread that VSCode created
@@ -123,8 +123,8 @@ export class ReviewCommentController implements vscode.Disposable {
       return;
     }
 
-    const relativePath = this.getRelativePath(reply.thread.uri);
-    if (!relativePath) {
+    const relInfo = this.getRelativePath(reply.thread.uri);
+    if (!relInfo) {
       vscode.window.showErrorMessage('Cannot determine file path relative to workspace');
       return;
     }
@@ -161,7 +161,9 @@ export class ReviewCommentController implements vscode.Disposable {
     );
 
     comment.isDraft = true;
-    comment.file = relativePath;
+    comment.file = relInfo.relativePath;
+    (comment as any).repoRoot = relInfo.repoRoot;
+    (comment as any).repoName = require('node:path').basename(relInfo.repoRoot);
     comment.lines = lines;
 
     // Add it to the thread and hide the reply box
@@ -213,6 +215,7 @@ export class ReviewCommentController implements vscode.Disposable {
         status: comment.status,
         reviewer: 'human',
         file: comment.file,
+        repo: (comment as any).repoName,
         lines: comment.lines,
         body: `**human**:\n${body}`,
         timestamp: Math.floor(Date.now() / 1000),
@@ -223,7 +226,7 @@ export class ReviewCommentController implements vscode.Disposable {
         thread.dispose();
       }
 
-      await this.store.save(fc);
+      await this.store.save(fc, (comment as any).repoRoot);
       return; // Store sync will recreate the thread
     }
 
@@ -439,12 +442,29 @@ export class ReviewCommentController implements vscode.Disposable {
     this.threads.set(fc.id, thread);
   }
 
-  private getRelativePath(uri: vscode.Uri): string | undefined {
+  private getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
     const absPath = uri.fsPath;
-    if (!absPath.startsWith(this.workspaceRoot)) {
+    const repos = this.store.getRepoRoots();
+    // Find the longest repoRoot that matches, to handle nested repos if any
+    let matchedRepo = '';
+    for (const repoRoot of repos) {
+      if (absPath.startsWith(repoRoot)) {
+        if (repoRoot.length > matchedRepo.length) {
+          matchedRepo = repoRoot;
+        }
+      }
+    }
+    
+    let repoRoot = matchedRepo;
+    if (!repoRoot) {
+      const folder = vscode.workspace.getWorkspaceFolder(uri);
+      repoRoot = folder ? folder.uri.fsPath : this.workspaceRoot;
+    }
+    
+    if (!absPath.startsWith(repoRoot)) {
       return undefined;
     }
-    return path.relative(this.workspaceRoot, absPath).replace(/\\/g, '/');
+    return { relativePath: require('node:path').relative(repoRoot, absPath).replace(/\\/g, '/'), repoRoot };
   }
 }
 

@@ -154,6 +154,41 @@
         "title": "Open Changes",
         "category": "Local HITL Review",
         "icon": "$(git-pull-request-go-to-changes)"
+      },
+      {
+        "command": "vscodeComment.repo.refresh",
+        "title": "Refresh Repository",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vscodeComment.repo.selectBaseBranch",
+        "title": "Select Base Branch",
+        "icon": "$(source-control)"
+      },
+      {
+        "command": "vscodeComment.repo.selectCompareMode",
+        "title": "Change View Mode",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "vscodeComment.repo.openChanges",
+        "title": "Open All Changes",
+        "icon": "$(git-pull-request-go-to-changes)"
+      },
+      {
+        "command": "vscodeComment.repo.initFeedback",
+        "title": "Initialize Feedback",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "vscodeComment.file.markViewed",
+        "title": "Mark as Viewed",
+        "icon": "$(check)"
+      },
+      {
+        "command": "vscodeComment.file.unmarkViewed",
+        "title": "Unmark as Viewed",
+        "icon": "$(close)"
       }
     ],
     "submenus": [
@@ -220,6 +255,41 @@
         {
           "command": "vscodeComment.openCommitChanges",
           "when": "view == vscodeComment.changedFiles && (viewItem == commitItem || viewItem == workInProgressItem)"
+        },
+        {
+          "command": "vscodeComment.repo.refresh",
+          "when": "view == vscodeComment.changedFiles && viewItem == repository",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.repo.openChanges",
+          "when": "view == vscodeComment.changedFiles && viewItem == repository",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.repo.selectBaseBranch",
+          "when": "view == vscodeComment.changedFiles && viewItem == repository",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.repo.selectCompareMode",
+          "when": "view == vscodeComment.changedFiles && viewItem == repository",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.repo.initFeedback",
+          "when": "view == vscodeComment.changedFiles && viewItem == repository",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.file.markViewed",
+          "when": "view == vscodeComment.changedFiles && viewItem == changedFileItem",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeComment.file.unmarkViewed",
+          "when": "view == vscodeComment.changedFiles && viewItem == changedFileItemViewed",
+          "group": "inline"
         }
       ],
       "comments/commentThread/context": [
@@ -300,6 +370,15 @@
           "type": "string",
           "default": "",
           "description": "Base branch to compare against (e.g. 'main'). Leave empty to auto-detect."
+        },
+        "vscodeComment.feedbackScope": {
+          "type": "string",
+          "enum": [
+            "global",
+            "local"
+          ],
+          "default": "global",
+          "description": "In a multi-repo session, whether feedback comments are stored globally at the workspace root, or locally in each repository."
         },
         "vscodeComment.defaultCompareMode": {
           "type": "string",
