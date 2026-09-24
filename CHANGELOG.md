@@ -1,3 +1,10 @@
+# [0.10.0](https://github.com/pabloubal/local-hitl-review/compare/v0.9.0...v0.10.0) (2026-09-24)
+
+
+### Features
+
+* add auto-refresh for changed files on git state changes ([7d73182](https://github.com/pabloubal/local-hitl-review/commit/7d73182251f0684a7073aea8dc3bc0b65c264a46))
+
 # [0.9.0](https://github.com/pabloubal/local-hitl-review/compare/v0.8.0...v0.9.0) (2026-09-23)
 
 
