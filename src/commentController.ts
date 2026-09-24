@@ -377,16 +377,25 @@ export class ReviewCommentController implements vscode.Disposable {
    * Disposes old threads and creates new ones for each comment.
    */
   private syncFromStore(): void {
-    // Dispose existing threads
-    for (const thread of this.threads.values()) {
-      thread.dispose();
-    }
-    this.threads.clear();
-
-    // Create threads from store
     const comments = this.store.getAll();
+    const storeIds = new Set(comments.map(c => c.id));
+
+    // Dispose threads that are no longer in the store
+    for (const [id, thread] of this.threads.entries()) {
+      if (!storeIds.has(id)) {
+        thread.dispose();
+        this.threads.delete(id);
+      }
+    }
+
+    // Create or update threads
     for (const fc of comments) {
-      this.createThread(fc);
+      const existingThread = this.threads.get(fc.id);
+      if (existingThread) {
+        this.updateThread(existingThread, fc);
+      } else {
+        this.createThread(fc);
+      }
     }
   }
 
@@ -396,7 +405,11 @@ export class ReviewCommentController implements vscode.Disposable {
     const range = new vscode.Range(start - 1, 0, end - 1, 0); // 0-indexed
 
     const thread = this.controller.createCommentThread(uri, range, []);
+    this.updateThread(thread, fc);
+    this.threads.set(fc.id, thread);
+  }
 
+  private updateThread(thread: vscode.CommentThread, fc: FeedbackComment): void {
     // Split the body by the thread delimiter
     const rawChunks = fc.body.split(/\n___\n/);
     const comments: ReviewComment[] = [];
@@ -438,8 +451,6 @@ export class ReviewCommentController implements vscode.Disposable {
       ? vscode.CommentThreadCollapsibleState.Collapsed
       : vscode.CommentThreadCollapsibleState.Expanded;
     thread.state = fc.status === 'acknowledged' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
-
-    this.threads.set(fc.id, thread);
   }
 
   private getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
