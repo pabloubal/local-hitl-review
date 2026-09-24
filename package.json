@@ -107,13 +107,11 @@
       },
       {
         "command": "vscodeComment.saveComment",
-        "title": "Save",
-        "icon": "$(check)"
+        "title": "Save"
       },
       {
         "command": "vscodeComment.cancelEdit",
-        "title": "Cancel",
-        "icon": "$(close)"
+        "title": "Cancel"
       },
       {
         "command": "vscodeComment.setSeverityCritical",
@@ -328,18 +326,18 @@
       ],
       "comments/comment/context": [
         {
-          "command": "vscodeComment.insertSuggestionIntoComment",
-          "group": "inline@0",
-          "when": "commentController == vscode-comment && comment == editing"
-        },
-        {
-          "command": "vscodeComment.cancelEdit",
+          "command": "vscodeComment.saveComment",
           "group": "inline@1",
           "when": "commentController == vscode-comment && comment == editing"
         },
         {
-          "command": "vscodeComment.saveComment",
+          "command": "vscodeComment.cancelEdit",
           "group": "inline@2",
+          "when": "commentController == vscode-comment && comment == editing"
+        },
+        {
+          "command": "vscodeComment.insertSuggestionIntoComment",
+          "group": "inline@3",
           "when": "commentController == vscode-comment && comment == editing"
         }
       ],
