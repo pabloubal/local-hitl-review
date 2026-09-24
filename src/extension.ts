@@ -109,6 +109,34 @@ export async function activate(context: vscode.ExtensionContext) {
     showCollapseAll: false,
   });
 
+  // --- Auto-refresh on Git State Change ---
+  const gitExtension = vscode.extensions.getExtension('vscode.git');
+  if (gitExtension) {
+    try {
+      const gitExt = gitExtension.isActive ? gitExtension.exports : await gitExtension.activate();
+      const git = gitExt.getAPI(1);
+      
+      let refreshTimeout: NodeJS.Timeout | undefined;
+      const debouncedRefresh = () => {
+        if (refreshTimeout) clearTimeout(refreshTimeout);
+        refreshTimeout = setTimeout(() => {
+          changedFilesProvider.refresh();
+        }, 1000);
+      };
+
+      const bindRepoListener = (repo: any) => {
+        context.subscriptions.push(
+          repo.state.onDidChange(() => debouncedRefresh())
+        );
+      };
+
+      git.repositories.forEach(bindRepoListener);
+      context.subscriptions.push(git.onDidOpenRepository(bindRepoListener));
+    } catch (e) {
+      log('Failed to connect to Git extension API for auto-refresh: ' + e);
+    }
+  }
+
   // --- Comment Controller ---
   const commentController = new ReviewCommentController(
     store,
