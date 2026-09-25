@@ -31,6 +31,10 @@ export class FeedbackStore implements vscode.Disposable {
     this.scope = config.get<'global'|'local'>('feedbackScope') || 'global';
   }
 
+  public getScope(): 'global' | 'local' {
+    return this.scope;
+  }
+
   public getRepoRoots(): string[] {
     return this.repoRoots;
   }

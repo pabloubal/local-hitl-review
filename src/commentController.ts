@@ -453,7 +453,7 @@ export class ReviewCommentController implements vscode.Disposable {
     thread.state = fc.status === 'acknowledged' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
   }
 
-  private getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
+  public getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
     const absPath = uri.fsPath;
     const repos = this.store.getRepoRoots();
     // Find the longest repoRoot that matches, to handle nested repos if any
@@ -472,10 +472,17 @@ export class ReviewCommentController implements vscode.Disposable {
       repoRoot = folder ? folder.uri.fsPath : this.workspaceRoot;
     }
     
-    if (!absPath.startsWith(repoRoot)) {
+    if (!absPath.startsWith(repoRoot) && !absPath.startsWith(this.workspaceRoot)) {
       return undefined;
     }
-    return { relativePath: require('node:path').relative(repoRoot, absPath).replace(/\\/g, '/'), repoRoot };
+
+    const basePath = this.store.getScope() === 'global' ? this.workspaceRoot : repoRoot;
+
+    if (!absPath.startsWith(basePath)) {
+      return undefined;
+    }
+
+    return { relativePath: require('node:path').relative(basePath, absPath).replace(/\\/g, '/'), repoRoot };
   }
 }
 
