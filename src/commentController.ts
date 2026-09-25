@@ -373,26 +373,46 @@ export class ReviewCommentController implements vscode.Disposable {
   // --- private ---
 
   /**
+   * Check whether a thread has an in-flight draft or a comment being edited.
+   * Such threads must not be disposed or overwritten by syncFromStore because
+   * the user would lose unsaved work.
+   */
+  private threadHasActiveEdit(thread: vscode.CommentThread): boolean {
+    for (const c of thread.comments) {
+      const rc = c as ReviewComment;
+      if (rc.isDraft || rc.mode === vscode.CommentMode.Editing) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Sync threads from the store state.
    * Disposes old threads and creates new ones for each comment.
+   * Threads with active drafts or edits in progress are skipped to
+   * avoid destroying unsaved user input.
    */
   private syncFromStore(): void {
     const comments = this.store.getAll();
     const storeIds = new Set(comments.map(c => c.id));
 
-    // Dispose threads that are no longer in the store
+    // Dispose threads that are no longer in the store,
+    // but preserve threads with active drafts or edits
     for (const [id, thread] of this.threads.entries()) {
-      if (!storeIds.has(id)) {
+      if (!storeIds.has(id) && !this.threadHasActiveEdit(thread)) {
         thread.dispose();
         this.threads.delete(id);
       }
     }
 
-    // Create or update threads
+    // Create or update threads (skip threads with active edits)
     for (const fc of comments) {
       const existingThread = this.threads.get(fc.id);
       if (existingThread) {
-        this.updateThread(existingThread, fc);
+        if (!this.threadHasActiveEdit(existingThread)) {
+          this.updateThread(existingThread, fc);
+        }
       } else {
         this.createThread(fc);
       }
