@@ -166,19 +166,16 @@ export class FeedbackStore implements vscode.Disposable {
     try {
         await fs.mkdir(dir, { recursive: true });
         
-        // Root .gitignore
-        const repoRoot = path.dirname(dir);
-        const rootGitignore = path.join(repoRoot, '.gitignore');
+        // Create .gitignore inside the feedback directory
+        const feedbackGitignore = path.join(dir, '.gitignore');
         try {
-          const content = await fs.readFile(rootGitignore, 'utf-8');
-          if (!content.includes('.feedback')) {
-            await fs.appendFile(rootGitignore, '\n# Local HITL Review\n.feedback/\n');
-          }
+          // Check if it exists first to avoid overwriting unnecessarily
+          await fs.access(feedbackGitignore);
         } catch {
           try {
-            await fs.writeFile(rootGitignore, '# Local HITL Review\n.feedback/\n');
+            await fs.writeFile(feedbackGitignore, '*\n');
           } catch (e) {
-            console.warn('Failed to write root .gitignore:', e);
+            console.warn('Failed to write feedback .gitignore:', e);
           }
         }
         
