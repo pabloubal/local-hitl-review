@@ -489,6 +489,14 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.discardNewThread', (reply: vscode.CommentReply) => {
+      if (reply && reply.thread) {
+        reply.thread.dispose();
+      }
+    })
+  );
+
   // --- Cleanup ---
   context.subscriptions.push(treeView, changedFilesProvider, commentController, store);
 

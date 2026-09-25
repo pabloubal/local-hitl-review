@@ -114,6 +114,11 @@
         "title": "Cancel"
       },
       {
+        "command": "vscodeComment.discardNewThread",
+        "title": "Cancel",
+        "icon": "$(close)"
+      },
+      {
         "command": "vscodeComment.setSeverityCritical",
         "title": "🔴 Critical"
       },
@@ -299,6 +304,11 @@
         {
           "command": "vscodeComment.createCommentWithSuggestion",
           "group": "inline@2",
+          "when": "commentController == vscode-comment"
+        },
+        {
+          "command": "vscodeComment.discardNewThread",
+          "group": "inline@3",
           "when": "commentController == vscode-comment"
         }
       ],
