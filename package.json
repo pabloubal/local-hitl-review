@@ -192,6 +192,11 @@
         "command": "vscodeComment.file.unmarkViewed",
         "title": "Unmark as Viewed",
         "icon": "$(close)"
+      },
+      {
+        "command": "vscodeComment.nextUnreviewedFile",
+        "title": "Next Unreviewed File",
+        "category": "Local HITL Review"
       }
     ],
     "submenus": [

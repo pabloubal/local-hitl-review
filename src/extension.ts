@@ -362,6 +362,25 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Next unreviewed file
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.nextUnreviewedFile', async () => {
+      let currentFilePath: string | undefined;
+      const editor = vscode.window.activeTextEditor;
+      if (editor) {
+        currentFilePath = editor.document.uri.fsPath;
+      }
+
+      const next = await changedFilesProvider.getNextUnreviewedFile(currentFilePath);
+      if (!next) {
+        vscode.window.showInformationMessage('No unreviewed files left.');
+        return;
+      }
+
+      await vscode.commands.executeCommand('vscodeComment.openDiff', next.file, next.commitHash, next.gitService);
+    })
+  );
+
   // Open diff for a changed file
   context.subscriptions.push(
     vscode.commands.registerCommand(

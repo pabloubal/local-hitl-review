@@ -228,6 +228,38 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
     return this.repos.flatMap(r => r.changedFiles);
   }
 
+  async getNextUnreviewedFile(currentFilePath?: string): Promise<{ file: ChangedFile, commitHash?: string, gitService: GitService } | undefined> {
+    await this.loadAllRepos();
+    const unviewed: { file: ChangedFile, commitHash?: string, gitService: GitService }[] = [];
+    
+    for (const repo of this.repos) {
+      if (!repo.isLoaded) continue;
+      const compareRef = repo.compareRef;
+      for (const file of repo.changedFiles) {
+        if (!this.isFileViewed(repo.gitService.repoRoot, compareRef, file.originalPath || file.path)) {
+          unviewed.push({ file, gitService: repo.gitService, commitHash: undefined });
+        }
+      }
+    }
+
+    if (unviewed.length === 0) return undefined;
+
+    if (currentFilePath) {
+      // normalize paths for comparison
+      const normalizedCurrent = currentFilePath.replace(/\\/g, '/');
+      const idx = unviewed.findIndex(u => {
+        const fullPath = path.join(this.workspaceRoot, u.file.path).replace(/\\/g, '/');
+        const relativePath = u.file.path.replace(/\\/g, '/');
+        return fullPath === normalizedCurrent || relativePath === normalizedCurrent;
+      });
+      if (idx !== -1 && idx + 1 < unviewed.length) {
+        return unviewed[idx + 1];
+      }
+    }
+    
+    return unviewed[0];
+  }
+
   getFirstGitService(): GitService | undefined {
     return this.repos.length > 0 ? this.repos[0].gitService : undefined;
   }
