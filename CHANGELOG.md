@@ -1,3 +1,10 @@
+# [0.12.0](https://github.com/pabloubal/local-hitl-review/compare/v0.11.1...v0.12.0) (2026-09-27)
+
+
+### Features
+
+* **ui:** add next unreviewed file navigation command ([#17](https://github.com/pabloubal/local-hitl-review/issues/17)) ([0cbc4b2](https://github.com/pabloubal/local-hitl-review/commit/0cbc4b2e519618937072f415b156bbd7437d57e5)), closes [#3](https://github.com/pabloubal/local-hitl-review/issues/3)
+
 ## [0.11.1](https://github.com/pabloubal/local-hitl-review/compare/v0.11.0...v0.11.1) (2026-09-27)
 
 
