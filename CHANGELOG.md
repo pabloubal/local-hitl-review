@@ -1,3 +1,16 @@
+# [0.11.0](https://github.com/pabloubal/local-hitl-review/compare/v0.10.0...v0.11.0) (2026-09-25)
+
+
+### Bug Fixes
+
+* create .gitignore inside feedback directory instead of root ([1423397](https://github.com/pabloubal/local-hitl-review/commit/1423397fccb929dd0a4c5cf7c41a79fac2c2e81c))
+
+
+### Features
+
+* add discardNewThread command and UI action to cancel new comment threads ([5cdac55](https://github.com/pabloubal/local-hitl-review/commit/5cdac553906021d5dc84b3bd4fb56746a2ab0193))
+* support global and local scope path resolution in ReviewCommentController with unit tests ([1838d29](https://github.com/pabloubal/local-hitl-review/commit/1838d2921024132eb833cc36067c72eadc58444f))
+
 # [0.10.0](https://github.com/pabloubal/local-hitl-review/compare/v0.9.0...v0.10.0) (2026-09-24)
 
 
