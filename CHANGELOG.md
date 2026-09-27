@@ -1,3 +1,10 @@
+## [0.11.1](https://github.com/pabloubal/local-hitl-review/compare/v0.11.0...v0.11.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **commentController:** preserve drafts and edits during store sync ([ef10fa4](https://github.com/pabloubal/local-hitl-review/commit/ef10fa40c9a46d910eb0554a065bb542371afe68)), closes [#2](https://github.com/pabloubal/local-hitl-review/issues/2)
+
 # [0.11.0](https://github.com/pabloubal/local-hitl-review/compare/v0.10.0...v0.11.0) (2026-09-25)
 
 
