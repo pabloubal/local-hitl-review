@@ -64,4 +64,18 @@ suite('GitService Integration Tests', () => {
     assert.strictEqual(changedFiles[0].path, 'file1.txt');
     assert.strictEqual(changedFiles[0].status, 'M');
   });
+
+  test('getHeadHash returns the current HEAD hash', async () => {
+    const headHash = await gitService.getHeadHash();
+    assert.match(headHash, /^[0-9a-f]{40}$/);
+
+    // Create a new commit and verify the hash changes
+    await fs.writeFile(path.join(tempDir, 'file3.txt'), 'more content\n');
+    await git('add', 'file3.txt');
+    await git('commit', '-m', 'Another commit');
+
+    const newHeadHash = await gitService.getHeadHash();
+    assert.match(newHeadHash, /^[0-9a-f]{40}$/);
+    assert.notStrictEqual(headHash, newHeadHash);
+  });
 });
