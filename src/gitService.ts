@@ -52,6 +52,14 @@ export class GitService {
   }
 
   /**
+   * Get the current HEAD hash.
+   */
+  async getHeadHash(): Promise<string> {
+    const { stdout } = await this.git('rev-parse', 'HEAD');
+    return stdout.trim();
+  }
+
+  /**
    * Get the current branch name.
    */
   async getCurrentBranch(): Promise<string> {

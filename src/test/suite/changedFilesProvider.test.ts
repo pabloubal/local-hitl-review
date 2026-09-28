@@ -111,4 +111,42 @@ suite('ChangedFilesProvider Tests', () => {
     const next = await provider.getNextUnreviewedFile();
     assert.strictEqual(next, undefined);
   });
+
+  test('loadRepoChanges resets viewed flags when HEAD changes', async () => {
+    const mockRepo = {
+      isLoaded: false,
+      baseBranch: 'main',
+      currentBranch: 'feature',
+      gitService: { 
+        repoRoot: '/mock/workspace',
+        getMergeBase: async () => 'base-hash',
+        getChangedFiles: async () => [],
+        getHeadHash: async () => 'new-head-hash',
+        detectBaseBranch: async () => 'main'
+      } as any,
+      changedFiles: []
+    };
+
+    (provider as any).repos = [mockRepo];
+    (provider as any).compareMode = { type: 'branch' };
+
+    // Simulate state from previous load
+    const branchKey = 'headHash:/mock/workspace:feature';
+    mockContext.workspaceState.update(branchKey, 'old-head-hash');
+    provider.setFileViewed('/mock/workspace', 'base-hash', 'file1.ts', true);
+    provider.setFileViewed('/mock/workspace', 'base-hash', 'file2.ts', true);
+
+    // Provide a mocked keys() function for MockWorkspaceState
+    (mockContext.workspaceState as any).keys = () => {
+      return Array.from((mockContext.workspaceState as any).data.keys());
+    };
+
+    assert.strictEqual(provider.isFileViewed('/mock/workspace', 'base-hash', 'file1.ts'), true);
+
+    await provider.loadRepoChanges(mockRepo as any);
+
+    assert.strictEqual(provider.isFileViewed('/mock/workspace', 'base-hash', 'file1.ts'), false);
+    assert.strictEqual(provider.isFileViewed('/mock/workspace', 'base-hash', 'file2.ts'), false);
+    assert.strictEqual(mockContext.workspaceState.get(branchKey), 'new-head-hash');
+  });
 });
