@@ -31,7 +31,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // --- Changed Files TreeView ---
   const changedFilesProvider = new ChangedFilesProvider(workspaceRoot, context, store);
   await changedFilesProvider.initialize();
-  context.subscriptions.push(vscode.window.registerFileDecorationProvider(new ReviewFileDecorationProvider()));
+  const fileDecorationProvider = new ReviewFileDecorationProvider(store, workspaceRoot);
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(fileDecorationProvider));
+  context.subscriptions.push(fileDecorationProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.repo.refresh', (item) => {

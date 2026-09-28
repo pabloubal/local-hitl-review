@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { GitService } from './gitService.js';
 import type { ChangedFile, FileStatus, GitCommit } from './types.js';
+import { FeedbackStore } from './feedbackStore.js';
 
 export type CompareMode =
   | { type: 'branch' }
@@ -464,7 +465,20 @@ export class WorkInProgressItem extends vscode.TreeItem {
   }
 }
 
-export class ReviewFileDecorationProvider implements vscode.FileDecorationProvider {
+export class ReviewFileDecorationProvider implements vscode.FileDecorationProvider, vscode.Disposable {
+  private _onDidChangeFileDecorations = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
+  readonly onDidChangeFileDecorations = this._onDidChangeFileDecorations.event;
+
+  private disposables: vscode.Disposable[] = [];
+
+  constructor(private readonly store: FeedbackStore, private readonly workspaceRoot: string) {
+    this.disposables.push(
+      store.onDidChange(() => {
+        this._onDidChangeFileDecorations.fire(undefined);
+      })
+    );
+  }
+
   provideFileDecoration(uri: vscode.Uri): vscode.ProviderResult<vscode.FileDecoration> {
     if (uri.scheme === 'vscode-comment-review') {
       const isViewed = uri.query.endsWith('-viewed');
@@ -480,6 +494,14 @@ export class ReviewFileDecorationProvider implements vscode.FileDecorationProvid
       else if (status === 'R') { badge = 'R'; tooltip = 'Renamed'; color = new vscode.ThemeColor('gitDecoration.renamedResourceForeground'); }
       else if (status === 'C') { badge = 'C'; tooltip = 'Copied'; color = new vscode.ThemeColor('gitDecoration.addedResourceForeground'); }
 
+      const relativePath = path.relative(this.workspaceRoot, uri.fsPath).replace(/\\/g, '/');
+      const openComments = this.store.getForFile(relativePath).filter(c => c.status === 'open');
+
+      if (openComments.length > 0) {
+        badge = openComments.length.toString();
+        tooltip = `${openComments.length} open comment(s)\n${tooltip}`;
+      }
+
       if (isViewed) {
         // If viewed, we fade it out by using a subtle color, and strike it through if desired.
         // There's a built-in 'gitDecoration.ignoredResourceForeground' that is faded gray.
@@ -487,6 +509,13 @@ export class ReviewFileDecorationProvider implements vscode.FileDecorationProvid
       }
 
       return new vscode.FileDecoration(badge, tooltip, color);
+    }
+  }
+
+  dispose(): void {
+    this._onDidChangeFileDecorations.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
     }
   }
 }
