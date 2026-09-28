@@ -36,8 +36,9 @@ export class ReviewCommentController implements vscode.Disposable {
         if (!relInfo) { return []; }
 
         const changedPaths = this.getChangedFilePaths();
-        // changedPaths from provider might include the repo relative prefix or just the path if it's the only one.
-        // For simplicity, we just allow commenting on any file for now.
+        if (!changedPaths.includes(relInfo.relativePath)) {
+          return [];
+        }
 
         // Allow commenting on any line
         const lineCount = document.lineCount;
