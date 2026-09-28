@@ -1,5 +1,5 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
-export type Status = 'open' | 'acknowledged';
+export type Status = 'open' | 'acknowledged' | 'resolved' | 'wontfix';
 export type FileStatus = 'M' | 'A' | 'D' | 'R' | 'C';
 export type Reviewer = 'human' | 'agent';
 

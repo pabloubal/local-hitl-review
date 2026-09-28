@@ -10,6 +10,28 @@ import {
 } from '../parser.js';
 
 describe('parseReviewFile', () => {
+  it('parses resolved and wontfix statuses correctly', () => {
+    const resolved = `---
+severity: low
+status: resolved
+file: foo.ts
+lines: 1
+---
+body`;
+    const resolvedComment = parseReviewFile(resolved, '1726588988-a3f2');
+    assert.equal(resolvedComment.status, 'resolved');
+
+    const wontfix = `---
+severity: low
+status: wontfix
+file: foo.ts
+lines: 1
+---
+body`;
+    const wontfixComment = parseReviewFile(wontfix, '1726588988-a3f3');
+    assert.equal(wontfixComment.status, 'wontfix');
+  });
+
   it('parses a complete .review file', () => {
     const content = `---
 severity: high
@@ -52,7 +74,7 @@ Some comment`;
   it('defaults status to open if invalid', () => {
     const content = `---
 severity: low
-status: resolved
+status: invalid
 file: foo.ts
 lines: 1
 ---
