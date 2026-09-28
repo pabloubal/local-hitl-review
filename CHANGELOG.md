@@ -1,3 +1,10 @@
+# [0.15.0](https://github.com/pabloubal/local-hitl-review/compare/v0.14.0...v0.15.0) (2026-09-28)
+
+
+### Features
+
+* **comments:** restrict commenting to changed files only ([#23](https://github.com/pabloubal/local-hitl-review/issues/23)) ([96139d1](https://github.com/pabloubal/local-hitl-review/commit/96139d10e8a06d04987c164242a70e03c3dfc8c4))
+
 # [0.14.0](https://github.com/pabloubal/local-hitl-review/compare/v0.13.0...v0.14.0) (2026-09-28)
 
 
