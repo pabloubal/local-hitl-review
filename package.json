@@ -202,6 +202,12 @@
         "command": "vscodeComment.nextUnreviewedFile",
         "title": "Next Unreviewed File",
         "category": "Local HITL Review"
+      },
+      {
+        "command": "vscodeComment.finishReview",
+        "title": "Approve / Finish Review",
+        "category": "Local HITL Review",
+        "icon": "$(check-all)"
       }
     ],
     "submenus": [
@@ -255,6 +261,11 @@
         },
         {
           "command": "vscodeComment.copyAgentPrompt",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.finishReview",
           "when": "view == vscodeComment.changedFiles",
           "group": "navigation"
         }

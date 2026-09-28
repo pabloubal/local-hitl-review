@@ -155,6 +155,26 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
         break;
       }
     }
+
+    try {
+      const headHash = await repo.gitService.getHeadHash();
+      const branchKey = `headHash:${repo.gitService.repoRoot}:${repo.currentBranch}`;
+      const lastHeadHash = this.context.workspaceState.get<string>(branchKey);
+
+      if (lastHeadHash && lastHeadHash !== headHash) {
+        const prefix = `viewed:${repo.gitService.repoRoot}:${repo.compareRef}:`;
+        const keys = this.context.workspaceState.keys();
+        for (const key of keys) {
+          if (key.startsWith(prefix)) {
+            this.context.workspaceState.update(key, undefined);
+          }
+        }
+      }
+      this.context.workspaceState.update(branchKey, headHash);
+    } catch (e) {
+      // Ignore git errors
+    }
+
     repo.isLoaded = true;
   }
 
