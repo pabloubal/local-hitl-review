@@ -20,7 +20,9 @@ suite('FeedbackStore Integration Tests', () => {
     store = new FeedbackStore(tempDir);
     await store.initialize();
     feedbackDir = store.getFeedbackDirForRepo((store as any).workspaceRoot);
-    test('saves correctly with local scope', async function () {
+  });
+
+  test('saves correctly with local scope', async function () {
       // Mock the config
       const originalScope = (store as any).scope;
       (store as any).scope = 'local';
@@ -137,5 +139,42 @@ This is a test comment.
     assert.strictEqual(comments[0].severity, 'critical');
     assert.strictEqual(comments[0].body.trim(), 'This is a test comment.');
   });
-});
+
+  test('surfaces error when save fails', async function () {
+    // Make the feedback directory read-only
+    await fs.chmod(feedbackDir, 0o555);
+    try {
+      await assert.rejects(async () => {
+        await store.save({
+          id: 'test-fail-save',
+          repo: 'repo1',
+          file: 'file1.ts',
+          severity: 'medium',
+          status: 'open',
+          reviewer: 'human',
+          lines: '10',
+          body: 'test content',
+          timestamp: Date.now()
+        });
+      });
+    } finally {
+      // Restore permissions so teardown can delete it
+      await fs.chmod(feedbackDir, 0o777);
+    }
+  });
+
+  test('surfaces error when delete fails', async function () {
+    const reviewFile = path.join(feedbackDir, 'test-delete.review');
+    await fs.writeFile(reviewFile, 'dummy content');
+    // Make dir read-only
+    await fs.chmod(feedbackDir, 0o555);
+    
+    try {
+      await assert.rejects(async () => {
+        await store.delete('test-delete');
+      });
+    } finally {
+      await fs.chmod(feedbackDir, 0o777);
+    }
+  });
 });
