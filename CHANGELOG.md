@@ -1,3 +1,10 @@
+# [0.14.0](https://github.com/pabloubal/local-hitl-review/compare/v0.13.0...v0.14.0) (2026-09-28)
+
+
+### Features
+
+* **tree:** build a feedback summary view in the tree ([#22](https://github.com/pabloubal/local-hitl-review/issues/22)) ([81748b5](https://github.com/pabloubal/local-hitl-review/commit/81748b551c307adf7e2ddb30e96649522978b6e1)), closes [#5](https://github.com/pabloubal/local-hitl-review/issues/5)
+
 # [0.13.0](https://github.com/pabloubal/local-hitl-review/compare/v0.12.0...v0.13.0) (2026-09-28)
 
 
