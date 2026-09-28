@@ -125,19 +125,19 @@
       },
       {
         "command": "vscodeComment.setSeverityCritical",
-        "title": "🔴 Critical"
+        "title": "\ud83d\udd34 Critical"
       },
       {
         "command": "vscodeComment.setSeverityHigh",
-        "title": "🟠 High"
+        "title": "\ud83d\udfe0 High"
       },
       {
         "command": "vscodeComment.setSeverityMedium",
-        "title": "🟡 Medium"
+        "title": "\ud83d\udfe1 Medium"
       },
       {
         "command": "vscodeComment.setSeverityLow",
-        "title": "🟢 Low"
+        "title": "\ud83d\udfe2 Low"
       },
       {
         "command": "vscodeComment.selectCompareMode",
@@ -208,6 +208,18 @@
         "title": "Approve / Finish Review",
         "category": "Local HITL Review",
         "icon": "$(check-all)"
+      },
+      {
+        "command": "vscodeComment.setStatusOpen",
+        "title": "\ud83d\udd04 Open"
+      },
+      {
+        "command": "vscodeComment.setStatusResolved",
+        "title": "\u2705 Resolved"
+      },
+      {
+        "command": "vscodeComment.setStatusWontfix",
+        "title": "\u274c Won't Fix"
       }
     ],
     "submenus": [
@@ -215,6 +227,11 @@
         "id": "vscodeComment.severityMenu",
         "label": "Change Severity",
         "icon": "$(warning)"
+      },
+      {
+        "id": "vscodeComment.statusMenu",
+        "label": "Change Status",
+        "icon": "$(git-pull-request)"
       }
     ],
     "menus": {
@@ -353,6 +370,11 @@
           "command": "vscodeComment.applySuggestion",
           "group": "inline",
           "when": "commentController == vscode-comment && comment == canEdit"
+        },
+        {
+          "submenu": "vscodeComment.statusMenu",
+          "group": "inline",
+          "when": "commentController == vscode-comment && comment == canEdit"
         }
       ],
       "comments/comment/context": [
@@ -384,6 +406,17 @@
         },
         {
           "command": "vscodeComment.setSeverityLow"
+        }
+      ],
+      "vscodeComment.statusMenu": [
+        {
+          "command": "vscodeComment.setStatusOpen"
+        },
+        {
+          "command": "vscodeComment.setStatusResolved"
+        },
+        {
+          "command": "vscodeComment.setStatusWontfix"
         }
       ]
     },
