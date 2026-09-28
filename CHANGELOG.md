@@ -1,3 +1,10 @@
+# [0.16.0](https://github.com/pabloubal/local-hitl-review/compare/v0.15.0...v0.16.0) (2026-09-28)
+
+
+### Features
+
+* Add approve/finish review action ([#24](https://github.com/pabloubal/local-hitl-review/issues/24)) ([5f085ee](https://github.com/pabloubal/local-hitl-review/commit/5f085ee4620598df8244b6712f66478a1a8c178a)), closes [#6](https://github.com/pabloubal/local-hitl-review/issues/6)
+
 # [0.15.0](https://github.com/pabloubal/local-hitl-review/compare/v0.14.0...v0.15.0) (2026-09-28)
 
 
