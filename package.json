@@ -26,6 +26,11 @@
         {
           "id": "vscodeComment.changedFiles",
           "name": "Local HITL Review"
+        },
+        {
+          "id": "vscodeComment.feedbackSummary",
+          "name": "Review Feedback Summary",
+          "when": "true"
         }
       ]
     },
