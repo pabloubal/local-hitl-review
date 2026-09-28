@@ -234,6 +234,32 @@
         "icon": "$(git-pull-request)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "vscodeComment.nextUnreviewedFile",
+        "key": "alt+n",
+        "mac": "alt+n",
+        "when": "vscodeComment.changedFiles.focus || commentController == vscode-comment"
+      },
+      {
+        "command": "vscodeComment.openAllChanges",
+        "key": "alt+o",
+        "mac": "alt+o",
+        "when": "vscodeComment.changedFiles.focus || commentController == vscode-comment"
+      },
+      {
+        "command": "vscodeComment.createComment",
+        "key": "alt+c",
+        "mac": "alt+c",
+        "when": "vscodeComment.changedFiles.focus || commentController == vscode-comment"
+      },
+      {
+        "command": "vscodeComment.file.markViewed",
+        "key": "alt+m",
+        "mac": "alt+m",
+        "when": "vscodeComment.changedFiles.focus || commentController == vscode-comment"
+      }
+    ],
     "menus": {
       "view/title": [
         {
