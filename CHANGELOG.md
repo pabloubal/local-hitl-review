@@ -1,3 +1,11 @@
+# [0.17.0](https://github.com/pabloubal/local-hitl-review/compare/v0.16.0...v0.17.0) (2026-09-28)
+
+
+### Features
+
+* **comments:** parse inline severity shorthand ([#9](https://github.com/pabloubal/local-hitl-review/issues/9)) ([#26](https://github.com/pabloubal/local-hitl-review/issues/26)) ([e789971](https://github.com/pabloubal/local-hitl-review/commit/e78997134fc72afd826ad7d21fed226bb731f38b))
+* **prompt:** enrich copyAgentPrompt with review stats and file list ([#25](https://github.com/pabloubal/local-hitl-review/issues/25)) ([f9e2c1e](https://github.com/pabloubal/local-hitl-review/commit/f9e2c1ec2971843a0ac29ec20ed1a55211d49061)), closes [#6](https://github.com/pabloubal/local-hitl-review/issues/6)
+
 # [0.16.0](https://github.com/pabloubal/local-hitl-review/compare/v0.15.0...v0.16.0) (2026-09-28)
 
 
