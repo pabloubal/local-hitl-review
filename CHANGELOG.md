@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/pabloubal/local-hitl-review/compare/v0.12.0...v0.13.0) (2026-09-28)
+
+
+### Features
+
+* **tree:** show comment count badges on file tree nodes ([#21](https://github.com/pabloubal/local-hitl-review/issues/21)) ([5f15983](https://github.com/pabloubal/local-hitl-review/commit/5f159835be09406f837bd2e8e87e27c906eac46f)), closes [#4](https://github.com/pabloubal/local-hitl-review/issues/4)
+
 # [0.12.0](https://github.com/pabloubal/local-hitl-review/compare/v0.11.1...v0.12.0) (2026-09-27)
 
 
