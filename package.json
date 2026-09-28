@@ -125,19 +125,19 @@
       },
       {
         "command": "vscodeComment.setSeverityCritical",
-        "title": "\ud83d\udd34 Critical"
+        "title": "🔴 Critical"
       },
       {
         "command": "vscodeComment.setSeverityHigh",
-        "title": "\ud83d\udfe0 High"
+        "title": "🟠 High"
       },
       {
         "command": "vscodeComment.setSeverityMedium",
-        "title": "\ud83d\udfe1 Medium"
+        "title": "🟡 Medium"
       },
       {
         "command": "vscodeComment.setSeverityLow",
-        "title": "\ud83d\udfe2 Low"
+        "title": "🟢 Low"
       },
       {
         "command": "vscodeComment.selectCompareMode",
@@ -211,15 +211,21 @@
       },
       {
         "command": "vscodeComment.setStatusOpen",
-        "title": "\ud83d\udd04 Open"
+        "title": "🔄 Open"
       },
       {
         "command": "vscodeComment.setStatusResolved",
-        "title": "\u2705 Resolved"
+        "title": "✅ Resolved"
       },
       {
         "command": "vscodeComment.setStatusWontfix",
-        "title": "\u274c Won't Fix"
+        "title": "❌ Won't Fix"
+      },
+      {
+        "command": "vscodeComment.filterFeedbackTree",
+        "title": "Filter Feedback",
+        "category": "Local HITL Review",
+        "icon": "$(filter)"
       }
     ],
     "submenus": [
@@ -284,6 +290,16 @@
         {
           "command": "vscodeComment.finishReview",
           "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.filterFeedbackTree",
+          "when": "view == vscodeComment.changedFiles",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeComment.filterFeedbackTree",
+          "when": "view == vscodeComment.feedbackSummary",
           "group": "navigation"
         }
       ],
