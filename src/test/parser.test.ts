@@ -6,6 +6,7 @@ import {
   parseLineRange,
   formatLineRange,
   generateCommentId,
+  extractSeverityShorthand,
 } from '../parser.js';
 
 describe('parseReviewFile', () => {
@@ -147,5 +148,37 @@ describe('generateCommentId', () => {
   it('produces unique ids', () => {
     const ids = new Set(Array.from({ length: 20 }, () => generateCommentId()));
     assert.equal(ids.size, 20);
+  });
+});
+
+describe('extractSeverityShorthand', () => {
+  it('extracts #critical', () => {
+    const result = extractSeverityShorthand('This is #critical issue');
+    assert.equal(result.severity, 'critical');
+    assert.equal(result.text, 'This is  issue'); // Note the double space because it strips just the tag
+  });
+
+  it('extracts #severity:high', () => {
+    const result = extractSeverityShorthand('Also #severity:high in the middle');
+    assert.equal(result.severity, 'high');
+    assert.equal(result.text, 'Also  in the middle');
+  });
+
+  it('defaults to medium if no tag', () => {
+    const result = extractSeverityShorthand('Just normal text');
+    assert.equal(result.severity, 'medium');
+    assert.equal(result.text, 'Just normal text');
+  });
+
+  it('defaults to provided default if no tag', () => {
+    const result = extractSeverityShorthand('Just normal text', 'low');
+    assert.equal(result.severity, 'low');
+    assert.equal(result.text, 'Just normal text');
+  });
+
+  it('only extracts the first valid tag', () => {
+    const result = extractSeverityShorthand('#critical and #low');
+    assert.equal(result.severity, 'critical');
+    assert.equal(result.text, ' and #low');
   });
 });
