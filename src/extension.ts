@@ -572,6 +572,24 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.setStatusOpen', (comment: any) => {
+      commentController.setStatus(comment, 'open');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.setStatusResolved', (comment: any) => {
+      commentController.setStatus(comment, 'resolved');
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.setStatusWontfix', (comment: any) => {
+      commentController.setStatus(comment, 'wontfix');
+    })
+  );
+
+  context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.discardNewThread', (reply: vscode.CommentReply) => {
       if (reply && reply.thread) {
         reply.thread.dispose();

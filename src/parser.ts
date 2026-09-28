@@ -116,7 +116,7 @@ function validateSeverity(value: string): Severity {
 }
 
 function validateStatus(value: string): Status {
-  const valid: Status[] = ['open', 'acknowledged'];
+  const valid: Status[] = ['open', 'acknowledged', 'resolved', 'wontfix'];
   if (valid.includes(value as Status)) {
     return value as Status;
   }

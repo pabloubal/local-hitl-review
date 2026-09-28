@@ -90,6 +90,30 @@ suite('ReviewCommentController Tests', () => {
     assert.strictEqual(threadAfterSync, thread, 'Thread reference should be preserved');
     assert.strictEqual(threadAfterSync.comments[0], originalComment, 'Comment reference should not be replaced if isDraft is true');
   });
+
+  test('setStatus updates the store correctly', async () => {
+    const id = 'test-id-status';
+    await store.save({
+      id,
+      repo: 'repo1',
+      file: 'file3.ts',
+      severity: 'medium',
+      status: 'open',
+      reviewer: 'human',
+      lines: '1',
+      body: 'body',
+      timestamp: Date.now()
+    });
+
+    await controller.initialize();
+    
+    // We can simulate calling setStatus
+    const mockComment = { feedbackId: id } as any;
+    await controller.setStatus(mockComment, 'wontfix');
+
+    const updated = store.get(id);
+    assert.strictEqual(updated?.status, 'wontfix', 'Status should be updated to wontfix');
+  });
 });
 
 suite('ReviewCommentController getRelativePath', () => {

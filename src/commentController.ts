@@ -7,6 +7,7 @@ import {
   SEVERITY_ORDER,
   type FeedbackComment,
   type Severity,
+  type Status,
 } from './types.js';
 
 /**
@@ -365,6 +366,19 @@ export class ReviewCommentController implements vscode.Disposable {
     await this.store.save(updated);
   }
 
+  /**
+   * Set a specific status directly from a submenu command.
+   */
+  async setStatus(comment: ReviewComment, status: Status): Promise<void> {
+    const existing = this.store.get(comment.feedbackId);
+    if (!existing) { return; }
+
+    if (existing.status === status) { return; }
+
+    const updated: FeedbackComment = { ...existing, status };
+    await this.store.save(updated);
+  }
+
   dispose(): void {
     for (const thread of this.threads.values()) {
       thread.dispose();
@@ -468,14 +482,18 @@ export class ReviewCommentController implements vscode.Disposable {
     thread.comments = comments.length > 0 ? comments : [
       new ReviewComment(fc.id, fc.body, fc.severity, fc.status, vscode.CommentMode.Preview, thread, 'human')
     ];
-    thread.label = fc.status === 'acknowledged' 
-      ? `✅ ${SEVERITY_LABELS[fc.severity]} — ${fc.status}` 
-      : `${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
+    if (fc.status === 'open') {
+      thread.label = `${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
+    } else if (fc.status === 'wontfix') {
+      thread.label = `❌ ${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
+    } else {
+      thread.label = `✅ ${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
+    }
     thread.canReply = true;
-    thread.collapsibleState = fc.status === 'acknowledged'
-      ? vscode.CommentThreadCollapsibleState.Collapsed
-      : vscode.CommentThreadCollapsibleState.Expanded;
-    thread.state = fc.status === 'acknowledged' ? vscode.CommentThreadState.Resolved : vscode.CommentThreadState.Unresolved;
+    thread.collapsibleState = fc.status === 'open'
+      ? vscode.CommentThreadCollapsibleState.Expanded
+      : vscode.CommentThreadCollapsibleState.Collapsed;
+    thread.state = fc.status === 'open' ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
   }
 
   public getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
@@ -526,7 +544,7 @@ class ReviewComment implements vscode.Comment {
     public readonly feedbackId: string,
     public body: string | vscode.MarkdownString,
     public severity: Severity,
-    public readonly status: 'open' | 'acknowledged',
+    public readonly status: Status,
     public mode: vscode.CommentMode,
     public readonly parent: vscode.CommentThread,
     public readonly authorName: string = 'human',
