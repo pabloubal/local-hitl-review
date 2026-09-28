@@ -5,6 +5,7 @@ import { FeedbackStore } from './feedbackStore.js';
 import { ChangedFilesProvider, ReviewFileDecorationProvider } from './changedFilesProvider.js';
 import { FeedbackSummaryProvider } from './feedbackSummaryProvider.js';
 import { ReviewCommentController } from './commentController.js';
+import { generateAgentPrompt } from './promptGenerator.js';
 import { outputChannel, log } from './logger.js';
 import type { ChangedFile } from './types.js';
 import type { CompareMode } from './changedFilesProvider.js';
@@ -269,10 +270,59 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.copyAgentPrompt', async () => {
       const agentsFile = store.getAgentsFilePath();
-      const relative = path.relative(workspaceRoot, agentsFile).replace(/\\/g, '/');
-      const text = `@${relative}`;
+      const text = generateAgentPrompt(workspaceRoot, agentsFile, store.getAll());
       await vscode.env.clipboard.writeText(text);
-      vscode.window.showInformationMessage(`Copied to clipboard: ${text}`);
+      vscode.window.showInformationMessage(`Copied agent prompt to clipboard`);
+    })
+  );
+
+  // Approve / Finish Review
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscodeComment.finishReview', async () => {
+      const allComments = store.getAll();
+      const byRepo = new Map<string, typeof allComments>();
+      for (const comment of allComments) {
+        const repo = comment.repo || workspaceRoot;
+        if (!byRepo.has(repo)) {
+          byRepo.set(repo, []);
+        }
+        byRepo.get(repo)!.push(comment);
+      }
+      
+      if (byRepo.size === 0) {
+        byRepo.set(workspaceRoot, []);
+      }
+
+      for (const [repoRoot, comments] of byRepo.entries()) {
+        const feedbackDir = store.getFeedbackDirForRepo(repoRoot, true);
+        const summaryPath = path.join(feedbackDir, 'review-complete.md');
+        
+        const openComments = comments.filter(c => c.status === 'open');
+        const bySeverity = { critical: 0, high: 0, medium: 0, low: 0 };
+        for (const c of openComments) {
+          bySeverity[c.severity]++;
+        }
+        
+        const content = [
+          `# Review Complete`,
+          `Date: ${new Date().toISOString()}`,
+          ``,
+          `## Summary`,
+          `- **Critical**: ${bySeverity.critical}`,
+          `- **High**: ${bySeverity.high}`,
+          `- **Medium**: ${bySeverity.medium}`,
+          `- **Low**: ${bySeverity.low}`,
+          ``,
+          `## Open Findings`,
+          ...openComments.map(c => `- [${c.severity}] ${c.file}:${c.lines}`)
+        ].join('\n');
+        
+        const fs = await import('node:fs/promises');
+        await fs.mkdir(feedbackDir, { recursive: true });
+        await fs.writeFile(summaryPath, content, 'utf8');
+      }
+      
+      vscode.window.showInformationMessage('Review finished. Summary generated.');
     })
   );
 
