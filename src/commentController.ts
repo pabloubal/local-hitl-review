@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { FeedbackStore } from './feedbackStore.js';
-import { generateCommentId, parseLineRange, formatLineRange } from './parser.js';
+import { generateCommentId, parseLineRange, formatLineRange, extractSeverityShorthand } from './parser.js';
 import {
   SEVERITY_LABELS,
   SEVERITY_ORDER,
@@ -77,7 +77,7 @@ export class ReviewCommentController implements vscode.Disposable {
       return;
     }
 
-    const severity = 'medium';
+    const { severity, text: cleanText } = extractSeverityShorthand(reply.text, 'medium');
 
     const relInfo = this.getRelativePath(reply.thread.uri);
     if (!relInfo) {
@@ -102,7 +102,7 @@ export class ReviewCommentController implements vscode.Disposable {
       file: relInfo.relativePath,
       repo: require('node:path').basename(relInfo.repoRoot),
       lines,
-      body: `**human**:\n${reply.text}`,
+      body: `**human**:\n${cleanText}`,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
@@ -207,7 +207,11 @@ export class ReviewCommentController implements vscode.Disposable {
       ? comment.body
       : comment.body.value;
 
-    comment.savedBody = body; // update it locally first
+    const { severity: newSeverity, text: cleanBody } = extractSeverityShorthand(body, comment.severity);
+
+    comment.severity = newSeverity;
+    comment.label = SEVERITY_LABELS[newSeverity];
+    comment.savedBody = cleanBody; // update it locally first
 
     if (comment.isDraft && comment.file && comment.lines) {
       const fc: FeedbackComment = {
@@ -247,7 +251,7 @@ export class ReviewCommentController implements vscode.Disposable {
       fullBody = `**${comment.authorName}**:\n${body}`;
     }
 
-    const updated: FeedbackComment = { ...existing, body: fullBody };
+    const updated: FeedbackComment = { ...existing, body: fullBody, severity: comment.severity };
     await this.store.save(updated);
 
     comment.mode = vscode.CommentMode.Preview;
@@ -521,7 +525,7 @@ class ReviewComment implements vscode.Comment {
   constructor(
     public readonly feedbackId: string,
     public body: string | vscode.MarkdownString,
-    public readonly severity: Severity,
+    public severity: Severity,
     public readonly status: 'open' | 'acknowledged',
     public mode: vscode.CommentMode,
     public readonly parent: vscode.CommentThread,

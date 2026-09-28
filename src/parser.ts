@@ -76,6 +76,21 @@ export function generateCommentId(): string {
   return `${timestamp}-${hash}`;
 }
 
+/**
+ * Parse severity shorthand from comment body (e.g. #critical or #severity:high).
+ * Returns the parsed severity and the text with the first match removed.
+ */
+export function extractSeverityShorthand(text: string, defaultSeverity: Severity = 'medium'): { severity: Severity, text: string } {
+  const regex = /#(critical|high|medium|low)|#severity:(critical|high|medium|low)/i;
+  const match = text.match(regex);
+  if (match) {
+    const severity = (match[1] || match[2]).toLowerCase() as Severity;
+    const newText = text.replace(match[0], ''); // We don't trim here to preserve surrounding whitespace/newlines, though it might leave a double space.
+    return { severity, text: newText };
+  }
+  return { severity: defaultSeverity, text };
+}
+
 // --- internal helpers ---
 
 function parseFrontmatter(raw: string): Map<string, string> {
