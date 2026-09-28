@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ChangedFile, FileStatus } from './types.js';
-import { log } from './logger.js';
+import { log, error as logError } from './logger.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -37,6 +37,7 @@ export class GitService {
         }
       }
     } catch (e) {
+      logError("Git command failed", e);
       // ignore
     }
     
@@ -122,7 +123,8 @@ export class GitService {
           const [hash, shortHash, subject, author, date] = line.split('|');
           return { hash, shortHash, subject, author, date };
         });
-    } catch {
+    } catch (e) {
+      logError("Git command failed", e);
       return [];
     }
   }
@@ -159,6 +161,7 @@ export class GitService {
         }
       }
     } catch (e) {
+      logError("Git command failed", e);
       // ignore
     }
     

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { parseReviewFile, serializeReviewFile } from './parser.js';
 import type { FeedbackComment } from './types.js';
+import * as logger from './logger.js';
 
 export class FeedbackStore implements vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
@@ -69,30 +70,46 @@ export class FeedbackStore implements vscode.Disposable {
   }
 
   async save(comment: FeedbackComment, repoRoot?: string): Promise<void> {
-    await this.initializeWorkspace();
-    let resolvedRepo = repoRoot;
-    if (!resolvedRepo && comment.repo && this.repoRoots.length > 0) {
-      resolvedRepo = this.repoRoots.find(r => require('node:path').basename(r) === comment.repo);
-    }
-    const dir = this.getFeedbackDirForRepo(resolvedRepo || this.workspaceRoot);
+    try {
+      await this.initializeWorkspace();
+      let resolvedRepo = repoRoot;
+      if (!resolvedRepo && comment.repo && this.repoRoots.length > 0) {
+        resolvedRepo = this.repoRoots.find(r => require('node:path').basename(r) === comment.repo);
+      }
+      const dir = this.getFeedbackDirForRepo(resolvedRepo || this.workspaceRoot);
 
-    const filePath = path.join(dir, `${comment.id}.review`);
-    const content = serializeReviewFile(comment);
-    await fs.writeFile(filePath, content, 'utf-8');
-    this.comments.set(comment.id, comment);
-    this._onDidChange.fire();
+      const filePath = path.join(dir, `${comment.id}.review`);
+      const content = serializeReviewFile(comment);
+      await fs.writeFile(filePath, content, 'utf-8');
+      this.comments.set(comment.id, comment);
+      this._onDidChange.fire();
+    } catch (e) {
+      logger.error(`Failed to save comment ${comment.id}`, e);
+      vscode.window.showErrorMessage('Failed to save review comment. See Local HITL Review output for details.');
+      throw e;
+    }
   }
 
   async delete(id: string): Promise<void> {
+    let deleted = false;
+    let lastError: any;
     // Find where this comment is stored
     for (const dir of this.getAllFeedbackDirs()) {
       const filePath = path.join(dir, `${id}.review`);
       try {
         await fs.unlink(filePath);
+        deleted = true;
         break;
-      } catch {
-        // File may be in a different dir, or already gone
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') {
+          lastError = e;
+        }
       }
+    }
+    if (!deleted && lastError) {
+      logger.error(`Failed to delete comment ${id}`, lastError);
+      vscode.window.showErrorMessage('Failed to delete review comment. See Local HITL Review output for details.');
+      throw lastError;
     }
     this.comments.delete(id);
     this._onDidChange.fire();
@@ -123,7 +140,7 @@ export class FeedbackStore implements vscode.Disposable {
             }
             this.comments.set(id, comment);
           } catch (e) {
-            console.warn(`Failed to parse review file ${entry}:`, e);
+            logger.error(`Failed to parse review file ${entry}:`, e);
           }
         }
       } catch {
@@ -179,7 +196,7 @@ export class FeedbackStore implements vscode.Disposable {
           try {
             await fs.writeFile(feedbackGitignore, '*\n');
           } catch (e) {
-            console.warn('Failed to write feedback .gitignore:', e);
+            logger.error('Failed to write feedback .gitignore:', e);
           }
         }
         
@@ -200,7 +217,7 @@ export class FeedbackStore implements vscode.Disposable {
               await fs.writeFile(agentsFilePath, templateContent);
             }
           } catch (e) {
-            console.warn('Failed to write agents file:', e);
+            logger.error('Failed to write agents file:', e);
           }
         }
 
@@ -214,11 +231,11 @@ export class FeedbackStore implements vscode.Disposable {
             const templateContent = await fs.readFile(templatePath, 'utf-8');
             await fs.writeFile(reviewTemplateFile, templateContent);
           } catch (e) {
-            console.warn('Failed to read or write REVIEW_template.md:', e);
+            logger.error('Failed to read or write REVIEW_template.md:', e);
           }
         }
-        } catch {
-          // Ignore directory creation errors
+        } catch (e) {
+          logger.error(`Failed to initialize feedback directory ${dir}`, e);
         }
   }
 

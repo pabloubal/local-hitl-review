@@ -4,6 +4,7 @@ import * as fs from 'node:fs/promises';
 import { GitService } from './gitService.js';
 import type { ChangedFile, FileStatus, GitCommit } from './types.js';
 import { FeedbackStore } from './feedbackStore.js';
+import * as logger from './logger.js';
 
 export type CompareMode =
   | { type: 'branch' }
@@ -90,7 +91,7 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
           }
         }
       } catch (e) {
-        console.error('Error discovering git repos in ' + root, e);
+        logger.error('Error discovering git repos in ' + root, e);
       }
     }
     return Array.from(new Set(repos));
@@ -112,6 +113,7 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
 
       this._onDidChangeTreeData.fire();
     } catch (e: unknown) {
+      logger.error('Failed to get changes in refresh', e);
       const message = e instanceof Error ? e.message : String(e);
       vscode.window.showErrorMessage(`Local HITL Review: Failed to get changes — ${message}`);
       for (const repo of this.repos) repo.changedFiles = [];
@@ -172,7 +174,7 @@ export class ChangedFilesProvider implements vscode.TreeDataProvider<ReviewTreeN
       }
       this.context.workspaceState.update(branchKey, headHash);
     } catch (e) {
-      // Ignore git errors
+      logger.error('Error in loadRepoChanges Git operations', e);
     }
 
     repo.isLoaded = true;
