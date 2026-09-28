@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { GitService } from './gitService.js';
 import { FeedbackStore } from './feedbackStore.js';
 import { ChangedFilesProvider, ReviewFileDecorationProvider } from './changedFilesProvider.js';
+import { FeedbackSummaryProvider } from './feedbackSummaryProvider.js';
 import { ReviewCommentController } from './commentController.js';
 import { outputChannel, log } from './logger.js';
 import type { ChangedFile } from './types.js';
@@ -34,6 +35,14 @@ export async function activate(context: vscode.ExtensionContext) {
   const fileDecorationProvider = new ReviewFileDecorationProvider(store, workspaceRoot);
   context.subscriptions.push(vscode.window.registerFileDecorationProvider(fileDecorationProvider));
   context.subscriptions.push(fileDecorationProvider);
+
+  // --- Feedback Summary TreeView ---
+  const feedbackSummaryProvider = new FeedbackSummaryProvider(store, workspaceRoot);
+  const feedbackSummaryTreeView = vscode.window.createTreeView('vscodeComment.feedbackSummary', {
+    treeDataProvider: feedbackSummaryProvider,
+    showCollapseAll: true,
+  });
+  context.subscriptions.push(feedbackSummaryTreeView, feedbackSummaryProvider);
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vscodeComment.repo.refresh', (item) => {
