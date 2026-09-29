@@ -1,9 +1,21 @@
-import * as vscode from "vscode";
-import { Severity, Status } from "./types.js";
+import type { Severity, Status } from "./types.js";
+
+interface Disposable {
+  dispose(): void;
+}
 
 export class FilterState {
-  private _onDidChange = new vscode.EventEmitter<void>();
-  readonly onDidChange = this._onDidChange.event;
+  private _listeners = new Set<() => void>();
+
+  /**
+   * Register a listener for filter changes. Returns a Disposable
+   * that unregisters the listener when disposed.
+   * Compatible with vscode.Event consumer pattern.
+   */
+  readonly onDidChange = (listener: () => void): Disposable => {
+    this._listeners.add(listener);
+    return { dispose: () => this._listeners.delete(listener) };
+  };
 
   public severities = new Set<Severity>();
   public statuses = new Set<Status>(["open"]);
@@ -11,7 +23,9 @@ export class FilterState {
   public update(severities: Severity[], statuses: Status[]) {
     this.severities = new Set(severities);
     this.statuses = new Set(statuses);
-    this._onDidChange.fire();
+    for (const listener of this._listeners) {
+      listener();
+    }
   }
 
   public matches(severity: Severity, status: Status): boolean {

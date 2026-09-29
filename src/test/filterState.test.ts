@@ -1,6 +1,6 @@
 import * as assert from 'node:assert';
 import { test, describe } from 'node:test';
-import { FilterState } from '../../filterState.js';
+import { FilterState } from '../filterState.js';
 
 describe('FilterState', () => {
   test('should default to open status and no severities', () => {
