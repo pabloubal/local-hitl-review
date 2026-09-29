@@ -1,3 +1,12 @@
+# [0.18.0](https://github.com/pabloubal/local-hitl-review/compare/v0.17.0...v0.18.0) (2026-09-29)
+
+
+### Features
+
+* **keybindings:** add default keybindings for core review actions ([#29](https://github.com/pabloubal/local-hitl-review/issues/29)) ([b010fc6](https://github.com/pabloubal/local-hitl-review/commit/b010fc6c1c4aed4468a089850a312c4528a28125)), closes [#13](https://github.com/pabloubal/local-hitl-review/issues/13)
+* **review:** add resolved and wontfix status states ([#27](https://github.com/pabloubal/local-hitl-review/issues/27)) ([284c88d](https://github.com/pabloubal/local-hitl-review/commit/284c88dfb0a68a57e6c0368f2c55cc1fec099050)), closes [#10](https://github.com/pabloubal/local-hitl-review/issues/10)
+* **ui:** add quick-pick filter for severity and status in tree view ([#28](https://github.com/pabloubal/local-hitl-review/issues/28)) ([6f165c4](https://github.com/pabloubal/local-hitl-review/commit/6f165c4cdf9d7a39e49877d4849bbe03cb04dc7b)), closes [#11](https://github.com/pabloubal/local-hitl-review/issues/11)
+
 # [0.17.0](https://github.com/pabloubal/local-hitl-review/compare/v0.16.0...v0.17.0) (2026-09-28)
 
 
