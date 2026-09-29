@@ -511,7 +511,7 @@
     "build": "node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "pretest": "tsc",
-    "test:unit": "node --test out/test/*.test.js",
+    "test:unit": "c8 --reporter=text --reporter=lcov node --test out/test/*.test.js",
     "test:integration": "vscode-test",
     "test": "npm run test:unit && npm run test:integration",
     "lint": "tsc --noEmit"
@@ -522,6 +522,7 @@
     "@types/vscode": "^1.100.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
+    "c8": "^12.0.0",
     "esbuild": "^0.25.5",
     "mocha": "^12.0.2",
     "prettier": "^3.9.9",
