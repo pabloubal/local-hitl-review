@@ -57,5 +57,5 @@ jobs:
             @semantic-release/git
             @semantic-release/exec
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
