@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'node:path';
 import { FeedbackStore } from './feedbackStore.js';
-import { generateCommentId, parseLineRange, formatLineRange, extractSeverityShorthand } from './parser.js';
+import {
+  generateCommentId,
+  parseLineRange,
+  formatLineRange,
+  extractSeverityShorthand,
+} from './parser.js';
 import {
   SEVERITY_LABELS,
   SEVERITY_ORDER,
@@ -23,18 +28,20 @@ export class ReviewCommentController implements vscode.Disposable {
   constructor(
     private readonly store: FeedbackStore,
     private readonly workspaceRoot: string,
-    private readonly getChangedFilePaths: () => string[]
+    private readonly getChangedFilePaths: () => string[],
   ) {
     this.controller = vscode.comments.createCommentController(
       'vscode-comment',
-      'Local HITL Review'
+      'Local HITL Review',
     );
 
     // Only allow commenting on files that are in the changed set
     this.controller.commentingRangeProvider = {
       provideCommentingRanges: (document: vscode.TextDocument) => {
         const relInfo = this.getRelativePath(document.uri);
-        if (!relInfo) { return []; }
+        if (!relInfo) {
+          return [];
+        }
 
         const changedPaths = this.getChangedFilePaths();
         if (!changedPaths.includes(relInfo.relativePath)) {
@@ -48,9 +55,7 @@ export class ReviewCommentController implements vscode.Disposable {
     };
 
     // Listen for store changes (external edits, agent acknowledgments)
-    this.disposables.push(
-      this.store.onDidChange(() => this.syncFromStore())
-    );
+    this.disposables.push(this.store.onDidChange(() => this.syncFromStore()));
 
     this.disposables.push(this.controller);
   }
@@ -159,7 +164,7 @@ export class ReviewCommentController implements vscode.Disposable {
       vscode.CommentMode.Editing,
       reply.thread,
       'human',
-      'editing'
+      'editing',
     );
 
     comment.isDraft = true;
@@ -180,9 +185,11 @@ export class ReviewCommentController implements vscode.Disposable {
     const confirm = await vscode.window.showWarningMessage(
       'Delete this review comment?',
       { modal: true },
-      'Delete'
+      'Delete',
     );
-    if (confirm !== 'Delete') { return; }
+    if (confirm !== 'Delete') {
+      return;
+    }
 
     await this.store.delete(comment.feedbackId);
     // syncFromStore will clean up the thread
@@ -204,11 +211,12 @@ export class ReviewCommentController implements vscode.Disposable {
    * Handle the "Save Comment" command after editing.
    */
   async saveComment(comment: ReviewComment): Promise<void> {
-    const body = typeof comment.body === 'string'
-      ? comment.body
-      : comment.body.value;
+    const body = typeof comment.body === 'string' ? comment.body : comment.body.value;
 
-    const { severity: newSeverity, text: cleanBody } = extractSeverityShorthand(body, comment.severity);
+    const { severity: newSeverity, text: cleanBody } = extractSeverityShorthand(
+      body,
+      comment.severity,
+    );
 
     comment.severity = newSeverity;
     comment.label = SEVERITY_LABELS[newSeverity];
@@ -237,12 +245,14 @@ export class ReviewCommentController implements vscode.Disposable {
     }
 
     const existing = this.store.get(comment.feedbackId);
-    if (!existing) { return; }
+    if (!existing) {
+      return;
+    }
 
     const thread = comment.parent;
     let fullBody = '';
     if (thread) {
-      const parts = thread.comments.map(c => {
+      const parts = thread.comments.map((c) => {
         const rc = c as ReviewComment;
         const text = typeof rc.savedBody === 'string' ? rc.savedBody : rc.savedBody.value;
         return `**${rc.authorName}**:\n${text}`;
@@ -267,7 +277,9 @@ export class ReviewCommentController implements vscode.Disposable {
    */
   async applySuggestion(comment: ReviewComment): Promise<void> {
     const existing = this.store.get(comment.feedbackId);
-    if (!existing) { return; }
+    if (!existing) {
+      return;
+    }
 
     const bodyStr = typeof comment.body === 'string' ? comment.body : comment.body.value;
     const suggestionMatch = bodyStr.match(/```suggestion\n([\s\S]*?)\n```/);
@@ -338,7 +350,7 @@ export class ReviewCommentController implements vscode.Disposable {
 
     if (comment.isDraft && thread) {
       // It was an unsaved draft, discard it entirely
-      thread.comments = thread.comments.filter(c => c !== comment);
+      thread.comments = thread.comments.filter((c) => c !== comment);
       if (thread.comments.length === 0) {
         thread.dispose();
       }
@@ -358,9 +370,13 @@ export class ReviewCommentController implements vscode.Disposable {
    */
   async setSeverity(comment: ReviewComment, severity: Severity): Promise<void> {
     const existing = this.store.get(comment.feedbackId);
-    if (!existing) { return; }
+    if (!existing) {
+      return;
+    }
 
-    if (existing.severity === severity) { return; }
+    if (existing.severity === severity) {
+      return;
+    }
 
     const updated: FeedbackComment = { ...existing, severity };
     await this.store.save(updated);
@@ -371,9 +387,13 @@ export class ReviewCommentController implements vscode.Disposable {
    */
   async setStatus(comment: ReviewComment, status: Status): Promise<void> {
     const existing = this.store.get(comment.feedbackId);
-    if (!existing) { return; }
+    if (!existing) {
+      return;
+    }
 
-    if (existing.status === status) { return; }
+    if (existing.status === status) {
+      return;
+    }
 
     const updated: FeedbackComment = { ...existing, status };
     await this.store.save(updated);
@@ -414,7 +434,7 @@ export class ReviewCommentController implements vscode.Disposable {
    */
   private syncFromStore(): void {
     const comments = this.store.getAll();
-    const storeIds = new Set(comments.map(c => c.id));
+    const storeIds = new Set(comments.map((c) => c.id));
 
     // Dispose threads that are no longer in the store,
     // but preserve threads with active drafts or edits
@@ -456,7 +476,7 @@ export class ReviewCommentController implements vscode.Disposable {
     for (const chunk of rawChunks) {
       let authorName = 'human';
       let content = chunk;
-      
+
       const authorMatch = chunk.match(/^\*\*([^*]+)\*\*:\n([\s\S]*)$/);
       if (authorMatch) {
         authorName = authorMatch[1].trim();
@@ -473,15 +493,26 @@ export class ReviewCommentController implements vscode.Disposable {
           fc.status,
           vscode.CommentMode.Preview,
           thread,
-          authorName
+          authorName,
         );
         comments.push(comment);
       }
     }
 
-    thread.comments = comments.length > 0 ? comments : [
-      new ReviewComment(fc.id, fc.body, fc.severity, fc.status, vscode.CommentMode.Preview, thread, 'human')
-    ];
+    thread.comments =
+      comments.length > 0
+        ? comments
+        : [
+            new ReviewComment(
+              fc.id,
+              fc.body,
+              fc.severity,
+              fc.status,
+              vscode.CommentMode.Preview,
+              thread,
+              'human',
+            ),
+          ];
     if (fc.status === 'open') {
       thread.label = `${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
     } else if (fc.status === 'wontfix') {
@@ -490,13 +521,17 @@ export class ReviewCommentController implements vscode.Disposable {
       thread.label = `✅ ${SEVERITY_LABELS[fc.severity]} — ${fc.status}`;
     }
     thread.canReply = true;
-    thread.collapsibleState = fc.status === 'open'
-      ? vscode.CommentThreadCollapsibleState.Expanded
-      : vscode.CommentThreadCollapsibleState.Collapsed;
-    thread.state = fc.status === 'open' ? vscode.CommentThreadState.Unresolved : vscode.CommentThreadState.Resolved;
+    thread.collapsibleState =
+      fc.status === 'open'
+        ? vscode.CommentThreadCollapsibleState.Expanded
+        : vscode.CommentThreadCollapsibleState.Collapsed;
+    thread.state =
+      fc.status === 'open'
+        ? vscode.CommentThreadState.Unresolved
+        : vscode.CommentThreadState.Resolved;
   }
 
-  public getRelativePath(uri: vscode.Uri): { relativePath: string, repoRoot: string } | undefined {
+  public getRelativePath(uri: vscode.Uri): { relativePath: string; repoRoot: string } | undefined {
     const absPath = uri.fsPath;
     const repos = this.store.getRepoRoots();
     // Find the longest repoRoot that matches, to handle nested repos if any
@@ -508,13 +543,13 @@ export class ReviewCommentController implements vscode.Disposable {
         }
       }
     }
-    
+
     let repoRoot = matchedRepo;
     if (!repoRoot) {
       const folder = vscode.workspace.getWorkspaceFolder(uri);
       repoRoot = folder ? folder.uri.fsPath : this.workspaceRoot;
     }
-    
+
     if (!absPath.startsWith(repoRoot) && !absPath.startsWith(this.workspaceRoot)) {
       return undefined;
     }
@@ -525,7 +560,10 @@ export class ReviewCommentController implements vscode.Disposable {
       return undefined;
     }
 
-    return { relativePath: require('node:path').relative(basePath, absPath).replace(/\\/g, '/'), repoRoot };
+    return {
+      relativePath: require('node:path').relative(basePath, absPath).replace(/\\/g, '/'),
+      repoRoot,
+    };
   }
 }
 
@@ -548,7 +586,7 @@ class ReviewComment implements vscode.Comment {
     public mode: vscode.CommentMode,
     public readonly parent: vscode.CommentThread,
     public readonly authorName: string = 'human',
-    public contextValue: string = 'canEdit'
+    public contextValue: string = 'canEdit',
   ) {
     this.savedBody = body;
     this.label = SEVERITY_LABELS[severity];

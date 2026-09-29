@@ -4,8 +4,12 @@ import { ChangedFilesProvider } from '../../changedFilesProvider.js';
 
 class MockWorkspaceState {
   private data = new Map<string, any>();
-  get(key: string) { return this.data.get(key); }
-  update(key: string, value: any) { this.data.set(key, value); }
+  get(key: string) {
+    return this.data.get(key);
+  }
+  update(key: string, value: any) {
+    this.data.set(key, value);
+  }
 }
 
 suite('ChangedFilesProvider Tests', () => {
@@ -28,8 +32,8 @@ suite('ChangedFilesProvider Tests', () => {
       changedFiles: [
         { path: 'file1.ts', originalPath: 'file1.ts', status: 'M' },
         { path: 'file2.ts', originalPath: 'file2.ts', status: 'M' },
-        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' }
-      ]
+        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' },
+      ],
     };
     (provider as any).repos = [mockRepo];
 
@@ -45,11 +49,11 @@ suite('ChangedFilesProvider Tests', () => {
       gitService: { repoRoot: '/mock/workspace' } as any,
       changedFiles: [
         { path: 'file1.ts', originalPath: 'file1.ts', status: 'M' },
-        { path: 'file2.ts', originalPath: 'file2.ts', status: 'M' }
-      ]
+        { path: 'file2.ts', originalPath: 'file2.ts', status: 'M' },
+      ],
     };
     (provider as any).repos = [mockRepo];
-    
+
     provider.setFileViewed('/mock/workspace', 'main', 'file1.ts', true);
 
     const next = await provider.getNextUnreviewedFile();
@@ -65,8 +69,8 @@ suite('ChangedFilesProvider Tests', () => {
       changedFiles: [
         { path: 'file1.ts', originalPath: 'file1.ts', status: 'M' },
         { path: 'file2.ts', originalPath: 'file2.ts', status: 'M' },
-        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' }
-      ]
+        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' },
+      ],
     };
     (provider as any).repos = [mockRepo];
 
@@ -83,11 +87,11 @@ suite('ChangedFilesProvider Tests', () => {
       changedFiles: [
         { path: 'file1.ts', originalPath: 'file1.ts', status: 'M' },
         { path: 'file2.ts', originalPath: 'file2.ts', status: 'M' },
-        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' }
-      ]
+        { path: 'file3.ts', originalPath: 'file3.ts', status: 'M' },
+      ],
     };
     (provider as any).repos = [mockRepo];
-    
+
     provider.setFileViewed('/mock/workspace', 'main', 'file2.ts', true);
 
     const next = await provider.getNextUnreviewedFile('file3.ts');
@@ -100,12 +104,10 @@ suite('ChangedFilesProvider Tests', () => {
       isLoaded: true,
       compareRef: 'main',
       gitService: { repoRoot: '/mock/workspace' } as any,
-      changedFiles: [
-        { path: 'file1.ts', originalPath: 'file1.ts', status: 'M' }
-      ]
+      changedFiles: [{ path: 'file1.ts', originalPath: 'file1.ts', status: 'M' }],
     };
     (provider as any).repos = [mockRepo];
-    
+
     provider.setFileViewed('/mock/workspace', 'main', 'file1.ts', true);
 
     const next = await provider.getNextUnreviewedFile();
@@ -117,14 +119,14 @@ suite('ChangedFilesProvider Tests', () => {
       isLoaded: false,
       baseBranch: 'main',
       currentBranch: 'feature',
-      gitService: { 
+      gitService: {
         repoRoot: '/mock/workspace',
         getMergeBase: async () => 'base-hash',
         getChangedFiles: async () => [],
         getHeadHash: async () => 'new-head-hash',
-        detectBaseBranch: async () => 'main'
+        detectBaseBranch: async () => 'main',
       } as any,
-      changedFiles: []
+      changedFiles: [],
     };
 
     (provider as any).repos = [mockRepo];

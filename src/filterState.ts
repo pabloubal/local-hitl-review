@@ -1,4 +1,4 @@
-import type { Severity, Status } from "./types.js";
+import type { Severity, Status } from './types.js';
 
 interface Disposable {
   dispose(): void;
@@ -18,7 +18,7 @@ export class FilterState {
   };
 
   public severities = new Set<Severity>();
-  public statuses = new Set<Status>(["open"]);
+  public statuses = new Set<Status>(['open']);
 
   public update(severities: Severity[], statuses: Status[]) {
     this.severities = new Set(severities);

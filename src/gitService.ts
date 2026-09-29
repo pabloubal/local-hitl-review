@@ -27,10 +27,14 @@ export class GitService {
   async getChangedFiles(mergeBase: string): Promise<ChangedFile[]> {
     const { stdout: diffStdout } = await this.git('diff', '--name-status', mergeBase);
     const files = this.parseNameStatus(diffStdout);
-    
+
     // Include untracked files
     try {
-      const { stdout: untrackedStdout } = await this.git('ls-files', '--others', '--exclude-standard');
+      const { stdout: untrackedStdout } = await this.git(
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+      );
       for (const line of untrackedStdout.split('\n')) {
         if (line.trim()) {
           files.push({ path: line.trim(), status: 'A' });
@@ -39,7 +43,7 @@ export class GitService {
     } catch (e) {
       // ignore
     }
-    
+
     return files;
   }
 
@@ -88,9 +92,14 @@ export class GitService {
 
     // Don't return the current branch as base
     const candidates = [
-      'origin/main', 'origin/master', 'origin/develop',
-      'upstream/main', 'upstream/master',
-      'main', 'master', 'develop'
+      'origin/main',
+      'origin/master',
+      'origin/develop',
+      'upstream/main',
+      'upstream/master',
+      'main',
+      'master',
+      'develop',
     ];
     for (const candidate of candidates) {
       if (branches.includes(candidate) && candidate !== currentBranch) {
@@ -113,7 +122,7 @@ export class GitService {
         'log',
         `${mergeBase}..HEAD`,
         '--format=%H|%h|%s|%an|%cr',
-        '--no-merges'
+        '--no-merges',
       );
       return stdout
         .split('\n')
@@ -149,10 +158,14 @@ export class GitService {
   async getUncommittedChanges(): Promise<ChangedFile[]> {
     const { stdout: diffStdout } = await this.git('diff', '--name-status', 'HEAD');
     const files = this.parseNameStatus(diffStdout);
-    
+
     // Include untracked files
     try {
-      const { stdout: untrackedStdout } = await this.git('ls-files', '--others', '--exclude-standard');
+      const { stdout: untrackedStdout } = await this.git(
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+      );
       for (const line of untrackedStdout.split('\n')) {
         if (line.trim()) {
           files.push({ path: line.trim(), status: 'A' });
@@ -161,7 +174,7 @@ export class GitService {
     } catch (e) {
       // ignore
     }
-    
+
     return files;
   }
 
@@ -186,7 +199,9 @@ export class GitService {
   private parseNameStatus(stdout: string): ChangedFile[] {
     const files: ChangedFile[] = [];
     for (const line of stdout.split('\n')) {
-      if (!line.trim()) { continue; }
+      if (!line.trim()) {
+        continue;
+      }
       const parts = line.split('\t');
       const statusChar = parts[0].charAt(0) as FileStatus;
       if (statusChar === 'R' || statusChar === 'C') {

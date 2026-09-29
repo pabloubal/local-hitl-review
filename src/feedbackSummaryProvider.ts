@@ -1,18 +1,16 @@
-import * as vscode from "vscode";
-import * as path from "node:path";
-import type { FeedbackStore } from "./feedbackStore.js";
-import { type FeedbackComment, SEVERITY_ORDER } from "./types.js";
-import { filterState } from "./filterState.js";
+import * as vscode from 'vscode';
+import * as path from 'node:path';
+import type { FeedbackStore } from './feedbackStore.js';
+import { type FeedbackComment, SEVERITY_ORDER } from './types.js';
+import { filterState } from './filterState.js';
 
 export class FeedbackSummaryProvider
   implements vscode.TreeDataProvider<vscode.TreeItem>, vscode.Disposable
 {
-  private _onDidChangeTreeData: vscode.EventEmitter<
-    vscode.TreeItem | undefined | void
-  > = new vscode.EventEmitter<vscode.TreeItem | undefined | void>();
-  readonly onDidChangeTreeData: vscode.Event<
-    vscode.TreeItem | undefined | void
-  > = this._onDidChangeTreeData.event;
+  private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | void> =
+    new vscode.EventEmitter<vscode.TreeItem | undefined | void>();
+  readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | void> =
+    this._onDidChangeTreeData.event;
   private disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -40,9 +38,7 @@ export class FeedbackSummaryProvider
   async getChildren(element?: vscode.TreeItem): Promise<vscode.TreeItem[]> {
     if (element === undefined) {
       // Root level: Group by file
-      const comments = this.store
-        .getAll()
-        .filter((c) => filterState.matches(c.severity, c.status));
+      const comments = this.store.getAll().filter((c) => filterState.matches(c.severity, c.status));
       const fileGroups = new Map<string, FeedbackComment[]>();
 
       for (const comment of comments) {
@@ -54,9 +50,7 @@ export class FeedbackSummaryProvider
 
       const fileNodes: FileSummaryItem[] = [];
       for (const [file, fileComments] of fileGroups.entries()) {
-        fileNodes.push(
-          new FileSummaryItem(file, fileComments, this.workspaceRoot),
-        );
+        fileNodes.push(new FileSummaryItem(file, fileComments, this.workspaceRoot));
       }
 
       // Sort alphabetically by file
@@ -72,9 +66,7 @@ export class FeedbackSummaryProvider
         }
         return a.timestamp - b.timestamp; // fallback to timestamp
       });
-      return comments.map(
-        (c) => new CommentSummaryItem(c, element.file, this.workspaceRoot),
-      );
+      return comments.map((c) => new CommentSummaryItem(c, element.file, this.workspaceRoot));
     }
     return [];
   }
@@ -94,11 +86,9 @@ export class FileSummaryItem extends vscode.TreeItem {
     workspaceRoot: string,
   ) {
     super(path.basename(file), vscode.TreeItemCollapsibleState.Expanded);
-    this.contextValue = "feedbackSummaryFile";
+    this.contextValue = 'feedbackSummaryFile';
     this.description =
-      comments.length === 1
-        ? "1 open comment"
-        : `${comments.length} open comments`;
+      comments.length === 1 ? '1 open comment' : `${comments.length} open comments`;
     this.tooltip = file;
     this.resourceUri = vscode.Uri.file(path.join(workspaceRoot, file));
     // Use standard theme icon for files, handled by VSCode automatically if resourceUri is set and iconPath is undefined
@@ -112,38 +102,36 @@ export class CommentSummaryItem extends vscode.TreeItem {
     workspaceRoot: string,
   ) {
     // Generate a short label from the body
-    const firstLine = comment.body.split("\n")[0].trim();
+    const firstLine = comment.body.split('\n')[0].trim();
     const maxLength = 50;
     const label =
-      firstLine.length > maxLength
-        ? firstLine.substring(0, maxLength) + "..."
-        : firstLine;
+      firstLine.length > maxLength ? firstLine.substring(0, maxLength) + '...' : firstLine;
 
     super(label, vscode.TreeItemCollapsibleState.None);
-    this.contextValue = "feedbackSummaryComment";
+    this.contextValue = 'feedbackSummaryComment';
     this.description = `Line ${comment.lines}`;
     this.tooltip = comment.body;
 
     // Convert string severity into colors
     const colors: Record<string, string> = {
-      critical: "charts.red",
-      high: "charts.orange",
-      medium: "charts.yellow",
-      low: "charts.green",
+      critical: 'charts.red',
+      high: 'charts.orange',
+      medium: 'charts.yellow',
+      low: 'charts.green',
     };
 
     this.iconPath = new vscode.ThemeIcon(
-      "comment",
-      new vscode.ThemeColor(colors[comment.severity] || "foreground"),
+      'comment',
+      new vscode.ThemeColor(colors[comment.severity] || 'foreground'),
     );
 
     const uri = vscode.Uri.file(path.join(workspaceRoot, file));
     // Command to jump to comment: maybe we can just open the file
     // To properly jump, we could execute 'vscode.open' with selection
-    const lineNum = parseInt(comment.lines.split("-")[0], 10) || 1;
+    const lineNum = parseInt(comment.lines.split('-')[0], 10) || 1;
     this.command = {
-      command: "vscode.open",
-      title: "Open File",
+      command: 'vscode.open',
+      title: 'Open File',
       arguments: [
         uri,
         {

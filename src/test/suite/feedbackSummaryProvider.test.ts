@@ -1,15 +1,23 @@
 import * as assert from 'assert';
-import { FeedbackSummaryProvider, FileSummaryItem, CommentSummaryItem } from '../../feedbackSummaryProvider.js';
+import {
+  FeedbackSummaryProvider,
+  FileSummaryItem,
+  CommentSummaryItem,
+} from '../../feedbackSummaryProvider.js';
 import { filterState } from '../../filterState.js';
 import { FeedbackStore } from '../../feedbackStore.js';
 import * as vscode from 'vscode';
 
 class MockFeedbackStore {
   private comments: any[] = [];
-  
+
   // mock methods
-  getAll() { return this.comments; }
-  setComments(comments: any[]) { this.comments = comments; }
+  getAll() {
+    return this.comments;
+  }
+  setComments(comments: any[]) {
+    this.comments = comments;
+  }
   onDidChange = new vscode.EventEmitter<void>().event;
 }
 
@@ -29,7 +37,7 @@ suite('FeedbackSummaryProvider Tests', () => {
     mockStore.setComments([
       { id: '1', file: 'fileA.ts', status: 'open', severity: 'critical', body: 'A' },
       { id: '2', file: 'fileA.ts', status: 'open', severity: 'low', body: 'B' },
-      { id: '3', file: 'fileB.ts', status: 'resolved', severity: 'high', body: 'C' }
+      { id: '3', file: 'fileB.ts', status: 'resolved', severity: 'high', body: 'C' },
     ]);
 
     const children = await provider.getChildren();
@@ -43,7 +51,7 @@ suite('FeedbackSummaryProvider Tests', () => {
     mockStore.setComments([
       { id: '1', file: 'fileA.ts', status: 'open', severity: 'critical', body: 'A' },
       { id: '2', file: 'fileA.ts', status: 'resolved', severity: 'low', body: 'B' },
-      { id: '3', file: 'fileB.ts', status: 'wontfix', severity: 'high', body: 'C' }
+      { id: '3', file: 'fileB.ts', status: 'wontfix', severity: 'high', body: 'C' },
     ]);
 
     // Show resolved only
@@ -60,7 +68,7 @@ suite('FeedbackSummaryProvider Tests', () => {
   test('getChildren respects filterState for severity', async () => {
     mockStore.setComments([
       { id: '1', file: 'fileA.ts', status: 'open', severity: 'critical', body: 'A' },
-      { id: '2', file: 'fileB.ts', status: 'open', severity: 'low', body: 'B' }
+      { id: '2', file: 'fileB.ts', status: 'open', severity: 'low', body: 'B' },
     ]);
 
     // Show critical only

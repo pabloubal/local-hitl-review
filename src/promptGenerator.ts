@@ -4,11 +4,11 @@ import type { FeedbackComment } from './types.js';
 export function generateAgentPrompt(
   workspaceRoot: string,
   agentsFilePath: string,
-  allComments: FeedbackComment[]
+  allComments: FeedbackComment[],
 ): string {
   const relative = path.relative(workspaceRoot, agentsFilePath).replace(/\\/g, '/');
-  
-  const openComments = allComments.filter(c => c.status === 'open');
+
+  const openComments = allComments.filter((c) => c.status === 'open');
   if (openComments.length === 0) {
     return `@${relative}`;
   }
@@ -18,7 +18,10 @@ export function generateAgentPrompt(
   let medium = 0;
   let low = 0;
 
-  const fileStats = new Map<string, { critical: number; high: number; medium: number; low: number }>();
+  const fileStats = new Map<
+    string,
+    { critical: number; high: number; medium: number; low: number }
+  >();
 
   for (const c of openComments) {
     if (c.severity === 'critical') critical++;
@@ -31,7 +34,7 @@ export function generateAgentPrompt(
       stats = { critical: 0, high: 0, medium: 0, low: 0 };
       fileStats.set(c.file, stats);
     }
-    
+
     if (c.severity === 'critical') stats.critical++;
     else if (c.severity === 'high') stats.high++;
     else if (c.severity === 'medium') stats.medium++;
@@ -56,6 +59,6 @@ export function generateAgentPrompt(
   }
 
   prompt += `\n@${relative}`;
-  
+
   return prompt;
 }

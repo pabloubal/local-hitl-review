@@ -46,7 +46,7 @@ suite('GitService Integration Tests', () => {
     await git('commit', '-m', 'Feature commit');
 
     const mergeBase = await gitService.getMergeBase('main');
-    
+
     // Check that it returned a hash (40 hex chars)
     assert.match(mergeBase, /^[0-9a-f]{40}$/);
   });
@@ -59,7 +59,7 @@ suite('GitService Integration Tests', () => {
     await git('add', 'file1.txt');
 
     const changedFiles = await gitService.getChangedFiles(mergeBase);
-    
+
     assert.strictEqual(changedFiles.length, 1);
     assert.strictEqual(changedFiles[0].path, 'file1.txt');
     assert.strictEqual(changedFiles[0].status, 'M');

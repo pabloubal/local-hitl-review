@@ -85,10 +85,7 @@ Some comment`;
   });
 
   it('throws on missing frontmatter', () => {
-    assert.throws(
-      () => parseReviewFile('No frontmatter here', 'x'),
-      /no frontmatter found/
-    );
+    assert.throws(() => parseReviewFile('No frontmatter here', 'x'), /no frontmatter found/);
   });
 });
 

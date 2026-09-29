@@ -13,7 +13,7 @@ describe('FilterState', () => {
   test('update() sets severities and statuses', () => {
     const filterState = new FilterState();
     filterState.update(['critical', 'high'], ['resolved', 'wontfix']);
-    
+
     assert.strictEqual(filterState.severities.has('critical'), true);
     assert.strictEqual(filterState.severities.has('high'), true);
     assert.strictEqual(filterState.statuses.has('resolved'), true);
@@ -24,7 +24,7 @@ describe('FilterState', () => {
   test('matches() returns true when filter is empty for that category', () => {
     const filterState = new FilterState();
     filterState.update([], []);
-    
+
     // With empty severities and empty statuses, everything matches
     assert.strictEqual(filterState.matches('critical', 'open'), true);
     assert.strictEqual(filterState.matches('low', 'resolved'), true);
@@ -33,7 +33,7 @@ describe('FilterState', () => {
   test('matches() respects severity filters', () => {
     const filterState = new FilterState();
     filterState.update(['critical'], []);
-    
+
     assert.strictEqual(filterState.matches('critical', 'open'), true);
     assert.strictEqual(filterState.matches('high', 'open'), false);
   });
@@ -41,7 +41,7 @@ describe('FilterState', () => {
   test('matches() respects status filters', () => {
     const filterState = new FilterState();
     filterState.update([], ['resolved']);
-    
+
     assert.strictEqual(filterState.matches('critical', 'resolved'), true);
     assert.strictEqual(filterState.matches('critical', 'open'), false);
   });
@@ -49,7 +49,7 @@ describe('FilterState', () => {
   test('matches() requires both category conditions to be met if both are set', () => {
     const filterState = new FilterState();
     filterState.update(['high'], ['open']);
-    
+
     // Match both
     assert.strictEqual(filterState.matches('high', 'open'), true);
     // Mismatch status

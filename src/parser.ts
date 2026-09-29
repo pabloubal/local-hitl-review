@@ -53,7 +53,7 @@ export function serializeReviewFile(comment: FeedbackComment): string {
 export function parseLineRange(lines: string): { start: number; end: number } {
   const parts = lines.split('-').map((s) => parseInt(s.trim(), 10));
   const start = parts[0] || 1;
-  const end = parts.length > 1 ? (parts[1] || start) : start;
+  const end = parts.length > 1 ? parts[1] || start : start;
   return { start, end };
 }
 
@@ -80,7 +80,10 @@ export function generateCommentId(): string {
  * Parse severity shorthand from comment body (e.g. #critical or #severity:high).
  * Returns the parsed severity and the text with the first match removed.
  */
-export function extractSeverityShorthand(text: string, defaultSeverity: Severity = 'medium'): { severity: Severity, text: string } {
+export function extractSeverityShorthand(
+  text: string,
+  defaultSeverity: Severity = 'medium',
+): { severity: Severity; text: string } {
   const regex = /#(critical|high|medium|low)|#severity:(critical|high|medium|low)/i;
   const match = text.match(regex);
   if (match) {
@@ -97,7 +100,9 @@ function parseFrontmatter(raw: string): Map<string, string> {
   const fields = new Map<string, string>();
   for (const line of raw.split('\n')) {
     const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) { continue; }
+    if (colonIdx === -1) {
+      continue;
+    }
     const key = line.slice(0, colonIdx).trim();
     const value = line.slice(colonIdx + 1).trim();
     if (key) {
