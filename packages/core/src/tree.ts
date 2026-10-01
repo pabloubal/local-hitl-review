@@ -9,6 +9,19 @@ import type { AnchorOptions, AnchorResult, Author, ThreadView, TreeSnapshot } fr
 import { readTree } from './read.js';
 import { buildSnapshot } from './snapshot.js';
 import {
+  addDraftMessage,
+  createDraftThread,
+  discardDraft,
+  submitRound,
+  updateDraft,
+  type AddDraftMessageInput,
+  type CreateDraftThreadInput,
+  type CreateDraftThreadResult,
+  type DraftPatch,
+  type SubmitRoundInput,
+  type SubmitRoundResult,
+} from './drafts.js';
+import {
   createThread,
   reopen,
   reply,
@@ -60,6 +73,16 @@ export interface LhrTree {
    * ID. Calculated, never written back. All threads on a file share one diff.
    */
   anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>>;
+  /** Starts a draft thread (hidden from agents until `submitRound`). */
+  createDraftThread(input: CreateDraftThreadInput): Promise<CreateDraftThreadResult>;
+  /** Adds a draft message to a submitted or draft thread. */
+  addDraftMessage(threadId: string, input: AddDraftMessageInput): Promise<{ messageId: string }>;
+  /** Rewrites a draft message in place; submitted messages throw NOT_A_DRAFT. */
+  updateDraft(messageId: string, patch: DraftPatch): Promise<void>;
+  /** Deletes a draft message, or a draft thread with its messages. */
+  discardDraft(id: string): Promise<void>;
+  /** Submits all drafts as one review round; safe to rerun after an interruption. */
+  submitRound(input: SubmitRoundInput): Promise<SubmitRoundResult>;
   /** Releases the long-lived git process. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -119,6 +142,26 @@ export class Tree implements LhrTree {
 
   anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>> {
     return computeAnchors({ root: this.root, gitPath: this.gitPath, git: this.git }, threads, opts);
+  }
+
+  createDraftThread(input: CreateDraftThreadInput): Promise<CreateDraftThreadResult> {
+    return createDraftThread(this, input);
+  }
+
+  addDraftMessage(threadId: string, input: AddDraftMessageInput): Promise<{ messageId: string }> {
+    return addDraftMessage(this, threadId, input);
+  }
+
+  updateDraft(messageId: string, patch: DraftPatch): Promise<void> {
+    return updateDraft(this, messageId, patch);
+  }
+
+  discardDraft(id: string): Promise<void> {
+    return discardDraft(this, id);
+  }
+
+  submitRound(input: SubmitRoundInput): Promise<SubmitRoundResult> {
+    return submitRound(this, input);
   }
 
   dispose(): Promise<void> {

@@ -4,6 +4,14 @@ export * from './ids.js';
 export { FORMAT_VERSION } from './format.js';
 export type { AnchorInput } from './capture.js';
 export type {
+  AddDraftMessageInput,
+  CreateDraftThreadInput,
+  CreateDraftThreadResult,
+  DraftPatch,
+  SubmitRoundInput,
+  SubmitRoundResult,
+} from './drafts.js';
+export type {
   CreateThreadInput,
   CreateThreadResult,
   ReplyInput,

@@ -38,15 +38,15 @@ export interface StatusChangeResult {
   changed: boolean;
 }
 
-const MAX_ATTEMPTS = 10;
+export const MAX_ATTEMPTS = 10;
 const SEVERITIES: readonly string[] = ['critical', 'high', 'medium', 'low'];
 const STATUSES: readonly string[] = ['open', 'resolved'];
 
-function invalid(message: string): LhrError {
+export function invalid(message: string): LhrError {
   return new LhrError('INVALID_INPUT', message);
 }
 
-function validateAuthor(author: Author): void {
+export function validateAuthor(author: Author): void {
   if (author.kind !== 'human' && author.kind !== 'agent') {
     throw invalid(`author.kind must be "human" or "agent": ${String(author.kind)}`);
   }
@@ -56,15 +56,16 @@ function validateAuthor(author: Author): void {
 }
 
 /** Fields of a message file, in the order the format lists them. */
-interface MessageFields {
+export interface MessageFields {
   author: Author;
   body: string;
+  round?: string;
   status?: ThreadStatus;
   severity?: Severity;
   clientId?: string;
 }
 
-function validateMessage(m: MessageFields): void {
+export function validateMessage(m: MessageFields): void {
   validateAuthor(m.author);
   if (m.status !== undefined && !STATUSES.includes(m.status)) {
     throw invalid(`status must be "open" or "resolved": ${String(m.status)}`);
@@ -80,13 +81,14 @@ function validateMessage(m: MessageFields): void {
   }
 }
 
-function messageText(m: MessageFields): string {
+export function messageText(m: MessageFields): string {
   const data: FrontmatterData = {
     'author.kind': m.author.kind,
     'author.name': m.author.name,
   };
   if (m.author.session !== undefined) data['author.session'] = m.author.session;
   if (m.author.githubLogin !== undefined) data['author.githubLogin'] = m.author.githubLogin;
+  if (m.round !== undefined) data.round = m.round;
   if (m.status !== undefined) data.status = m.status;
   if (m.severity !== undefined) data.severity = m.severity;
   if (m.clientId !== undefined) data.clientId = m.clientId;
@@ -95,7 +97,7 @@ function messageText(m: MessageFields): string {
 }
 
 /** Creates `file` exclusively. Returns false when it already exists. */
-async function createExclusive(file: string, content: string): Promise<boolean> {
+export async function createExclusive(file: string, content: string): Promise<boolean> {
   try {
     await writeFile(file, content, { flag: 'wx' });
     return true;
@@ -106,7 +108,7 @@ async function createExclusive(file: string, content: string): Promise<boolean> 
 }
 
 /** Writes a new message file into `dir` and returns its message ID. */
-async function writeMessage(
+export async function writeMessage(
   tree: Tree,
   dir: string,
   kind: Author['kind'],
@@ -119,7 +121,7 @@ async function writeMessage(
   throw new LhrError('GIT_FAILED', `could not find an unused message file name in ${dir}`);
 }
 
-async function requireThread(tree: Tree, threadId: string): Promise<ThreadView> {
+export async function requireThread(tree: Tree, threadId: string): Promise<ThreadView> {
   const thread = (await tree.load()).thread(threadId);
   if (!thread) throw new LhrError('THREAD_NOT_FOUND', `no thread ${threadId}`);
   return thread;
