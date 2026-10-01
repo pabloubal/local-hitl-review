@@ -1,3 +1,11 @@
+# [0.22.0](https://github.com/pabloubal/local-hitl-review/compare/v0.21.0...v0.22.0) (2026-10-01)
+
+
+### Features
+
+* **core:** batched re-anchoring engine ([#69](https://github.com/pabloubal/local-hitl-review/issues/69)) ([#78](https://github.com/pabloubal/local-hitl-review/issues/78)) ([a2267cf](https://github.com/pabloubal/local-hitl-review/commit/a2267cfee5225df212f053f202c843af7687ebc4))
+* **core:** immediate writes createThread, reply, resolve, reopen ([#70](https://github.com/pabloubal/local-hitl-review/issues/70)) ([#77](https://github.com/pabloubal/local-hitl-review/issues/77)) ([034b5af](https://github.com/pabloubal/local-hitl-review/commit/034b5afea983a3c006969f29297611c0eecad325))
+
 # [0.21.0](https://github.com/pabloubal/local-hitl-review/compare/v0.20.0...v0.21.0) (2026-10-01)
 
 
