@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/pabloubal/local-hitl-review/main/packages/core/schema/push.schema.json",
+  "title": "push record",
+  "description": "Parsed frontmatter of an LHR push record (file-format-v2).",
+  "required": [
+    "round",
+    "github.repo",
+    "github.pullNumber",
+    "github.reviewId",
+    "github.reviewNodeId",
+    "github.commitId",
+    "github.state",
+    "github.url",
+    "github.verdictDowngraded"
+  ],
+  "properties": {
+    "round": {
+      "type": "string",
+      "description": "Round ID",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[a-z2-7]{6}$"
+    },
+    "github.repo": {
+      "type": "string",
+      "description": "owner/name",
+      "pattern": "^[^/\\s]+/[^/\\s]+$"
+    },
+    "github.pullNumber": {
+      "type": "integer",
+      "description": "Pull request number"
+    },
+    "github.reviewId": {
+      "type": "integer",
+      "description": "GitHub review ID"
+    },
+    "github.reviewNodeId": {
+      "type": "string",
+      "description": "GitHub review node ID"
+    },
+    "github.commitId": {
+      "type": "string",
+      "description": "SHA the review was posted against"
+    },
+    "github.state": {
+      "type": "string",
+      "description": "Review state",
+      "enum": [
+        "PENDING",
+        "COMMENTED",
+        "APPROVED",
+        "CHANGES_REQUESTED"
+      ]
+    },
+    "github.submittedAt": {
+      "type": "string",
+      "description": "ISO 8601 timestamp; absent while pending"
+    },
+    "github.url": {
+      "type": "string",
+      "description": "Review URL"
+    },
+    "github.verdictDowngraded": {
+      "type": "boolean",
+      "description": "True when the verdict was posted as COMMENT"
+    }
+  },
+  "additionalProperties": true
+}

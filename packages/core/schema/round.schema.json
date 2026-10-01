@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/pabloubal/local-hitl-review/main/packages/core/schema/round.schema.json",
+  "title": "round file",
+  "description": "Parsed frontmatter of an LHR round file (file-format-v2).",
+  "required": [
+    "verdict",
+    "author.kind",
+    "author.name"
+  ],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "description": "The reviewer verdict",
+      "enum": [
+        "approve",
+        "comment",
+        "request-changes"
+      ]
+    },
+    "author.kind": {
+      "type": "string",
+      "description": "Rounds are submitted by humans",
+      "enum": [
+        "human"
+      ]
+    },
+    "author.name": {
+      "type": "string",
+      "description": "As on messages"
+    }
+  },
+  "additionalProperties": true
+}

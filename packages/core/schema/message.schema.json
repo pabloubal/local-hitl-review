@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/pabloubal/local-hitl-review/main/packages/core/schema/message.schema.json",
+  "title": "message file",
+  "description": "Parsed frontmatter of an LHR message file (file-format-v2).",
+  "required": [
+    "author.kind",
+    "author.name"
+  ],
+  "properties": {
+    "author.kind": {
+      "type": "string",
+      "description": "Must match the kind in the file name",
+      "enum": [
+        "human",
+        "agent"
+      ]
+    },
+    "author.name": {
+      "type": "string",
+      "description": "Git user.name for a human; the agent product for an agent"
+    },
+    "author.session": {
+      "type": "string",
+      "description": "Agent session ID"
+    },
+    "author.githubLogin": {
+      "type": "string",
+      "description": "Set only on messages imported from GitHub"
+    },
+    "round": {
+      "type": "string",
+      "description": "Round that submitted this message",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[a-z2-7]{6}$"
+    },
+    "status": {
+      "type": "string",
+      "description": "Changes the thread status",
+      "enum": [
+        "open",
+        "resolved"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "description": "Changes the thread severity",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "clientId": {
+      "type": "string",
+      "description": "Caller-chosen ID, unique within the thread"
+    }
+  },
+  "additionalProperties": true
+}
