@@ -1,6 +1,16 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  open,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+  type FileHandle,
+} from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { LhrError } from './errors.js';
 import { GitBatch, runGitStatus } from './git.js';
 import type {
   Anchor,
@@ -31,6 +41,25 @@ const MAX_EXTRA_LINES = 50;
 /** Threads resolved concurrently; bounds the number of parallel git diffs. */
 const CONCURRENCY = 8;
 const OID_RE = /^[0-9a-f]{4,64}$/i;
+/** Untracked files larger than this aren't considered as a rename target. */
+const MAX_UNTRACKED_BYTES = 1024 * 1024;
+/** Bytes sniffed for a NUL to skip binary untracked files. */
+const BINARY_SNIFF_BYTES = 8 * 1024;
+/** Untracked files examined per rename search, best candidates first. */
+const MAX_UNTRACKED_CANDIDATES = 200;
+/** Neutralises user config that changes the diff output we parse. */
+const DIFF_CONFIG = [
+  '-c',
+  'diff.noprefix=false',
+  '-c',
+  'diff.mnemonicPrefix=false',
+  '-c',
+  'diff.relative=false',
+  '-c',
+  'diff.interHunkContext=0',
+  '-c',
+  'color.ui=never',
+];
 
 export interface AnchorEnv {
   root: string;
@@ -130,6 +159,7 @@ class AnchorRun {
 
     if (oldText !== undefined) {
       const hunks = await this.diffHunks(a.blob, oldText, p);
+      if (hunks === undefined) return { state: 'orphaned', path: p, method: 'diff' };
       const m = mapRange(hunks, a.startLine, a.endLine);
       if (m.state === 'current') {
         return { state: 'current', path: p, startLine: m.start, endLine: m.end, method: 'diff' };
@@ -218,7 +248,8 @@ class AnchorRun {
     if (old === undefined && !anchored?.length) return undefined;
     const base = path.posix.basename(a.path);
     let best: { path: string; score: number } | undefined;
-    for (const f of await this.untracked()) {
+    for (const f of await this.untrackedCandidates(a.path)) {
+      if (!(await this.isSearchable(f))) continue;
       const text = await this.currentText(f);
       if (text === undefined) continue;
       let score = 0;
@@ -239,7 +270,17 @@ class AnchorRun {
       const map = new Map<string, string>();
       if (!OID_RE.test(commit)) return map;
       const { code, stdout } = await this.git(
-        ['diff', '-M', '--name-status', '-z', '--no-color', '--no-ext-diff', commit, '--'],
+        [
+          ...DIFF_CONFIG,
+          'diff',
+          '-M',
+          '--name-status',
+          '-z',
+          '--no-color',
+          '--no-ext-diff',
+          commit,
+          '--',
+        ],
         [0, 128],
       );
       if (code !== 0) return map;
@@ -260,6 +301,24 @@ class AnchorRun {
     });
   }
 
+  /**
+   * Untracked files worth reading as a new name for `oldPath`: same basename
+   * first, then same extension, then the rest, capped.
+   */
+  private async untrackedCandidates(oldPath: string): Promise<string[]> {
+    const base = path.posix.basename(oldPath);
+    const ext = path.posix.extname(oldPath);
+    const rank = (f: string): number => {
+      if (path.posix.basename(f) === base) return 0;
+      return ext !== '' && path.posix.extname(f) === ext ? 1 : 2;
+    };
+    return (await this.untracked())
+      .map((f) => ({ f, r: rank(f) }))
+      .sort((x, y) => x.r - y.r)
+      .slice(0, MAX_UNTRACKED_CANDIDATES)
+      .map((x) => x.f);
+  }
+
   private untracked(): Promise<string[]> {
     return this.once('untracked', async () => {
       const { stdout } = await this.git(['ls-files', '--others', '--exclude-standard', '-z'], []);
@@ -276,14 +335,51 @@ class AnchorRun {
     return this.once(`text:${rel}`, async () => {
       const override = this.overrides.get(rel);
       if (override !== undefined) return override;
-      const abs = path.join(this.env.root, rel);
+      const abs = await this.realFile(rel);
+      if (abs === undefined) return undefined;
       try {
-        if (!(await stat(abs)).isFile()) return undefined;
         return await readFile(abs, 'utf8');
       } catch {
         return undefined;
       }
     });
+  }
+
+  /**
+   * Real path of a regular file whose real location is inside the repo (a
+   * symlink may lead elsewhere); undefined otherwise.
+   */
+  private async realFile(rel: string): Promise<string | undefined> {
+    try {
+      const [root, real] = await Promise.all([
+        this.once('realRoot', () => realpath(this.env.root)),
+        realpath(path.join(this.env.root, rel)),
+      ]);
+      if (!real.startsWith(root + path.sep)) return undefined;
+      return (await stat(real)).isFile() ? real : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Small text file on disk (size cap, no NUL in the first bytes), for rename search. */
+  private async isSearchable(rel: string): Promise<boolean> {
+    const override = this.overrides.get(rel);
+    if (override !== undefined) return Buffer.byteLength(override) <= MAX_UNTRACKED_BYTES;
+    const abs = await this.realFile(rel);
+    if (abs === undefined) return false;
+    let handle: FileHandle | undefined;
+    try {
+      handle = await open(abs, 'r');
+      if ((await handle.stat()).size > MAX_UNTRACKED_BYTES) return false;
+      const buf = Buffer.alloc(BINARY_SNIFF_BYTES);
+      const { bytesRead } = await handle.read(buf, 0, BINARY_SNIFF_BYTES, 0);
+      return !buf.subarray(0, bytesRead).includes(0);
+    } catch {
+      return false;
+    } finally {
+      await handle?.close();
+    }
   }
 
   private currentLines(rel: string): Promise<string[]> {
@@ -309,38 +405,53 @@ class AnchorRun {
     });
   }
 
-  /** One `git diff --no-index` per (blob, path), shared by all threads on it. */
-  private diffHunks(blob: string, oldText: string, rel: string): Promise<Hunk[]> {
+  /**
+   * One `git diff --no-index` per (blob, path), shared by all threads on it.
+   * Undefined when git fails for this file, so only its threads are orphaned.
+   */
+  private diffHunks(blob: string, oldText: string, rel: string): Promise<Hunk[] | undefined> {
     return this.once(`diff:${blob}:${rel}`, async () => {
-      const curText = (await this.currentText(rel)) ?? '';
-      if (curText === oldText) return [];
-      const dir = await this.tmpDir();
-      const n = this.tmpCounter++;
-      const oldFile = path.join(dir, `${n}.old`);
-      await writeFile(oldFile, oldText);
-      let newFile = path.join(this.env.root, rel);
-      if (this.overrides.has(rel)) {
-        newFile = path.join(dir, `${n}.new`);
-        await writeFile(newFile, curText);
+      try {
+        return await this.runDiff(oldText, rel);
+      } catch (err) {
+        if (err instanceof LhrError && err.code === 'GIT_FAILED') return undefined;
+        throw err;
       }
-      const { stdout } = await this.git(
-        [
-          'diff',
-          '--no-index',
-          '--no-color',
-          '--no-ext-diff',
-          '--no-textconv',
-          '-a',
-          '-U0',
-          '--histogram',
-          '--',
-          oldFile,
-          newFile,
-        ],
-        [0, 1],
-      );
-      return parseHunks(stdout);
     });
+  }
+
+  private async runDiff(oldText: string, rel: string): Promise<Hunk[]> {
+    const curText = (await this.currentText(rel)) ?? '';
+    if (curText === oldText) return [];
+    const dir = await this.tmpDir();
+    const n = this.tmpCounter++;
+    const oldFile = path.join(dir, `${n}.old`);
+    await writeFile(oldFile, oldText);
+    let newFile = (await this.realFile(rel)) ?? path.join(this.env.root, rel);
+    if (this.overrides.has(rel)) {
+      newFile = path.join(dir, `${n}.new`);
+      await writeFile(newFile, curText);
+    }
+    const { stdout } = await this.git(
+      [
+        ...DIFF_CONFIG,
+        'diff',
+        '--no-index',
+        '--no-color',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-renames',
+        '-a',
+        '-U0',
+        '--inter-hunk-context=0',
+        '--histogram',
+        '--',
+        oldFile,
+        newFile,
+      ],
+      [0, 1],
+    );
+    return parseHunks(stdout);
   }
 
   // -- branches ----------------------------------------------------------------
@@ -484,19 +595,26 @@ export function mapRange(hunks: readonly Hunk[], s: number, e: number): Mapped {
     else if (hunkBefore(h, s)) shift += h.d - h.b;
   }
   if (touching.length === 0) return { state: 'current', start: s + shift, end: e + shift };
-  let start = Infinity;
+  // Mapped start: the first anchored line that still has a place in the new
+  // file. A line inside a replacement hunk maps to the same offset in the
+  // replacement, clamped to its last line; a deleted line has no place.
   for (let i = s; i <= e; i++) {
     let off = shift;
-    let gone = false;
+    let pos: number | undefined;
+    let deleted = false;
     for (const h of touching) {
       if (h.b > 0 && i >= h.a && i < h.a + h.b) {
-        gone = true;
+        if (h.d > 0) pos = h.c + Math.min(i - h.a, h.d - 1);
+        else deleted = true;
         break;
       }
       if (hunkBefore(h, i)) off += h.d - h.b;
     }
-    if (!gone) start = Math.min(start, i + off);
+    if (pos !== undefined) return { state: 'outdated', start: pos };
+    if (!deleted) return { state: 'outdated', start: i + off };
   }
+  // Every anchored line was deleted; lines inserted inside the range remain.
+  let start = Infinity;
   for (const h of touching) if (h.d > 0) start = Math.min(start, h.c);
   return start === Infinity ? { state: 'orphaned' } : { state: 'outdated', start };
 }
