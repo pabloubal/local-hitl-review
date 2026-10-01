@@ -3,7 +3,7 @@
 // temporary git repos. Scenario numbers match the prototype README.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, rename, unlink } from 'node:fs/promises';
+import { chmod, readFile, rename, symlink, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   openTree,
@@ -12,7 +12,7 @@ import {
   type LhrTree,
   type ThreadView,
 } from '../src/index.js';
-import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
+import { createTempDir, createTempRepo, type TempRepo } from './helpers/tempRepo.js';
 
 const L = (i: number): string => `const v${i} = compute(${i});`;
 const base30 = (): string[] => Array.from({ length: 30 }, (_, i) => L(i + 1));
@@ -767,6 +767,118 @@ describe('LhrTree.anchors: file threads, old side, overrides, batching', () => {
       } finally {
         await tree.dispose();
       }
+    });
+  });
+});
+
+describe('LhrTree.anchors: robustness', () => {
+  it('3b with diff.interHunkContext=3 and other diff config stays current', async () => {
+    await withRepo({ 'a.ts': base30() }, async (repo) => {
+      await repo.git('config', 'diff.interHunkContext', '3');
+      await repo.git('config', 'diff.noprefix', 'true');
+      await repo.git('config', 'diff.relative', 'true');
+      await repo.git('config', 'color.ui', 'always');
+      const t = await lineThread(repo, 'a.ts', 10, 12);
+      const l = base30();
+      l[8] += ' // e';
+      l[12] += ' // e';
+      await repo.write('a.ts', text(l));
+      await expectOne(repo, t, 'current 10-12', 'diff');
+    });
+  });
+
+  const replace = (l: string[], from: number, count: number, n: number): void => {
+    l.splice(from - 1, count, ...Array.from({ length: n }, (_, i) => `// replaced ${i}`));
+  };
+  const overlap: Array<[string, (l: string[]) => void, string]> = [
+    // Anchor 10-14, old lines 5-10 replaced (-5,6 +5,6): the first anchored
+    // line maps into the hunk at the same offset, not to the hunk's first line.
+    ['replacement overlapping from above, same size', (l) => replace(l, 5, 6, 6), 'outdated 10-14'],
+    // -5,6 +5,3: line 10 maps to the hunk's last line, 7.
+    ['replacement overlapping from above, shrunk', (l) => replace(l, 5, 6, 3), 'outdated 7-11'],
+    ['replacement overlapping from below, same size', (l) => replace(l, 12, 6, 6), 'outdated 10-14'],
+    ['replacement overlapping from below, shrunk', (l) => replace(l, 12, 6, 2), 'outdated 10-14'],
+  ];
+  for (const [name, mutate, expected] of overlap) {
+    it(name, async () => {
+      await withRepo({ 'a.ts': base30() }, async (repo) => {
+        const t = await lineThread(repo, 'a.ts', 10, 14);
+        const l = base30();
+        mutate(l);
+        await repo.write('a.ts', text(l));
+        await expectOne(repo, t, expected, 'diff');
+      });
+    });
+  }
+
+  it('untracked rename search skips files over 1 MiB and binary files', async () => {
+    await withRepo({ 'src/a.ts': base30() }, async (repo) => {
+      const t = await lineThread(repo, 'src/a.ts', 10, 12);
+      const filler = '// filler line for a big file\n'.repeat(40_000);
+      await repo.write('big/a.ts', text(base30()) + filler);
+      await repo.write('bin/a.ts', `\0binary\n${text(base30())}`);
+      await unlink(path.join(repo.root, 'src/a.ts'));
+      await expectOne(repo, t, 'orphaned', 'path');
+      await repo.write('ok/a.ts', text(base30()));
+      const r = await anchorOne(repo, t);
+      assert.equal(fmt(r, t), 'current ok/a.ts:10-12');
+    });
+  });
+
+  it('a git diff failure on one file orphans its threads only', async () => {
+    await withRepo({ 'a.ts': base30(), 'bad.ts': base30() }, async (repo) => {
+      const good = await lineThread(repo, 'a.ts', 10, 12);
+      const bad = await lineThread(repo, 'bad.ts', 10, 12);
+      const l = base30();
+      l.splice(0, 0, '// new');
+      await repo.write('a.ts', text(l));
+      await repo.write('bad.ts', text(l));
+      const tmp = await createTempDir();
+      try {
+        // git wrapper that fails `git diff --no-index` for bad.ts only.
+        const fake = path.join(tmp.root, 'git');
+        await writeFile(
+          fake,
+          '#!/bin/sh\ncase "$*" in *--no-index*bad.ts*) echo boom >&2; exit 2;; esac\nexec git "$@"\n',
+        );
+        await chmod(fake, 0o755);
+        const tree = await openTree({ root: repo.root, gitPath: fake });
+        try {
+          const res = await tree.anchors([good, bad]);
+          assert.equal(fmt(res.get(good.id) as AnchorResult, good), 'current 11-13');
+          assert.deepEqual(res.get(bad.id), { state: 'orphaned', path: 'bad.ts', method: 'diff' });
+        } finally {
+          await tree.dispose();
+        }
+      } finally {
+        await tmp.cleanup();
+      }
+    });
+  });
+
+  it('a symlink that leads outside the repo is orphaned', async () => {
+    await withRepo({ 'a.ts': base30() }, async (repo) => {
+      const t = await lineThread(repo, 'a.ts', 10, 12);
+      const f = await fileThread(repo, 'a.ts');
+      const outside = await createTempDir();
+      try {
+        await writeFile(path.join(outside.root, 'a.ts'), text(base30()));
+        await unlink(path.join(repo.root, 'a.ts'));
+        await symlink(path.join(outside.root, 'a.ts'), path.join(repo.root, 'a.ts'));
+        const res = await anchorAll(repo, [t, f]);
+        assert.equal(res.get(t.id)?.state, 'orphaned');
+        assert.equal(res.get(f.id)?.state, 'orphaned');
+      } finally {
+        await outside.cleanup();
+      }
+    });
+  });
+
+  it('a symlink inside the repo is followed', async () => {
+    await withRepo({ 'real.ts': base30() }, async (repo) => {
+      await symlink('real.ts', path.join(repo.root, 'link.ts'));
+      const f = await fileThread(repo, 'link.ts');
+      assert.equal((await anchorOne(repo, f)).state, 'current');
     });
   });
 });
