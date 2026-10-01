@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+import type { FileHandle } from 'node:fs/promises';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
 import { serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
@@ -142,7 +143,10 @@ async function discardTemp(tmp: string): Promise<void> {
 }
 
 /** Internal test seam for file system calls. Not part of the public API. */
-export const seams = { link };
+export const seams = {
+  link,
+  writeContent: (handle: FileHandle, content: string): Promise<void> => handle.writeFile(content),
+};
 
 /** fsyncs a directory so a new or renamed entry survives power loss; best-effort on platforms without it. */
 async function fsyncDir(dir: string): Promise<void> {
@@ -191,7 +195,7 @@ export async function createAtomic(tree: Tree, file: string, content: string): P
       if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS' && code !== 'EXDEV') {
         throw err;
       }
-      let handle;
+      let handle: FileHandle | undefined;
       try {
         handle = await open(file, 'wx');
       } catch (openErr) {
@@ -199,10 +203,16 @@ export async function createAtomic(tree: Tree, file: string, content: string): P
         throw openErr;
       }
       try {
-        await handle.writeFile(content);
+        await seams.writeContent(handle, content);
         await handle.sync();
+      } catch (writeErr) {
+        // Do not leave a partial target behind (best-effort).
+        await handle.close().catch(() => undefined);
+        handle = undefined;
+        await unlink(file).catch(() => undefined);
+        throw writeErr;
       } finally {
-        await handle.close();
+        await handle?.close();
       }
     }
     await fsyncDir(path.dirname(file));

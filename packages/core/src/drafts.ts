@@ -400,8 +400,9 @@ async function publishThread(
     if (text === undefined) throw invalid(`draft ${id} cannot be parsed`);
     const target = path.join(to, `${id}.md`);
     await createAtomic(tree, target, text); // false: an earlier run already wrote it
-    if ((await readOptional(target)) === undefined) {
-      throw new LhrError('GIT_FAILED', `${target} vanished after it was written`);
+    const written = await readOptional(target);
+    if (written === undefined || parseFrontmatter(written, target).diagnostics.length > 0) {
+      throw invalid(`${target} is missing or invalid; keeping the draft`);
     }
     await rm(path.join(from, `${id}.md`), { force: true });
   }
@@ -427,7 +428,9 @@ async function publishThread(
  * can depend on it before the round file exists. Drafts that are invalid (a mismatched
  * author kind, an empty body without status or severity, a broken thread) are not
  * listed, stay in `drafts/` and come back as `skippedDraftIds` (empty when resuming).
- * Unexpected file system errors surface as `LhrError`. Crash-safe against process death;
+ * On file systems without hard links the no-partial-file guarantee and the protection
+ * against concurrent submits are best-effort: an error-path unlink covers process errors,
+ * not a hard kill mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against process death;
  * power loss is best-effort (files and directories are fsynced where the platform allows).
  */
 export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<SubmitRoundResult> {

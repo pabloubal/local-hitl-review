@@ -521,6 +521,21 @@ describe('crash safety', () => {
     });
   });
 
+  it('keeps the draft and the marker when a target message file is truncated', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+      const target = `${c.repo.root}/.lhr/threads/${tid}/${m.messageId}.md`;
+      await writeFile(target, '---\nauthor.kind: hu');
+      await assert.rejects(
+        c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN }),
+        (e) => e instanceof LhrError,
+      );
+      assert.deepEqual(await c.ls(`.lhr/drafts/threads/${tid}`), [`${m.messageId}.md`]);
+      assert.equal((await c.read('.lhr/drafts/.submitting')).includes(m.messageId), true);
+    });
+  });
+
   it('keeps drafts and the marker when the target thread.md is truncated', async () => {
     await withCtx(async (c) => {
       const d = await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'a', author: HUMAN });
@@ -583,6 +598,30 @@ describe('filesystem fallbacks', () => {
       } finally {
         restore();
       }
+    });
+  });
+
+  it('removes the partial target when the fallback write fails', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+      const restoreLink = stubLink('EPERM');
+      const original = seams.writeContent;
+      seams.writeContent = (handle, content) =>
+        content.includes('round: ')
+          ? Promise.reject(Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' }))
+          : original(handle, content);
+      try {
+        await assert.rejects(
+          c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN }),
+          (e) => e instanceof LhrError,
+        );
+      } finally {
+        seams.writeContent = original;
+        restoreLink();
+      }
+      assert.deepEqual(await c.ls(`.lhr/threads/${tid}`).then((l) => l.length), 2);
+      assert.deepEqual(await c.ls(`.lhr/drafts/threads/${tid}`), [`${m.messageId}.md`]);
     });
   });
 
