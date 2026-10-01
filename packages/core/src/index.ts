@@ -13,6 +13,10 @@ export type {
 export { DiagnosticCode } from './model.js';
 export type {
   Anchor,
+  AnchorMethod,
+  AnchorOptions,
+  AnchorResult,
+  AnchorState,
   Author,
   FileAnchor,
   InboxOptions,

@@ -14,25 +14,43 @@ export class GitExitError extends LhrError {
 }
 
 /** Runs git without a shell and returns stdout. Failures throw GIT_FAILED. */
-export function runGit(gitPath: string, cwd: string, args: string[]): Promise<string> {
+export async function runGit(gitPath: string, cwd: string, args: string[]): Promise<string> {
+  return (await runGitStatus(gitPath, cwd, args, [])).stdout;
+}
+
+/**
+ * Runs git and returns its exit code and stdout. Exit codes in `okCodes` are
+ * results, not failures (`git diff --no-index` exits 1 when files differ);
+ * any other exit throws GIT_FAILED.
+ */
+export async function runGitStatus(
+  gitPath: string,
+  cwd: string,
+  args: string[],
+  okCodes: readonly number[],
+): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve, reject) => {
     execFile(
       gitPath,
       args,
-      { cwd, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' },
+      { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8' },
       (err, stdout, stderr) => {
-        if (err) {
-          const detail = (stderr ?? '').trim() || err.message;
-          const message = `git ${args.join(' ')} failed: ${detail}`;
-          const exitCode = (err as { code?: unknown }).code;
-          if (typeof exitCode === 'number') {
-            reject(new GitExitError(message, exitCode, (stderr ?? '').trim()));
-          } else {
-            reject(new LhrError('GIT_FAILED', message));
-          }
+        if (!err) {
+          resolve({ code: 0, stdout });
           return;
         }
-        resolve(stdout);
+        const exitCode = (err as { code?: unknown }).code;
+        if (typeof exitCode === 'number' && okCodes.includes(exitCode)) {
+          resolve({ code: exitCode, stdout });
+          return;
+        }
+        const detail = (stderr ?? '').trim() || err.message;
+        const message = `git ${args.join(' ')} failed: ${detail}`;
+        if (typeof exitCode === 'number') {
+          reject(new GitExitError(message, exitCode, (stderr ?? '').trim()));
+        } else {
+          reject(new LhrError('GIT_FAILED', message));
+        }
       },
     );
   });
