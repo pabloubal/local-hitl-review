@@ -3,18 +3,18 @@
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     "@semantic-release/changelog",
-    ["@semantic-release/npm", { "npmPublish": false }],
+    ["@semantic-release/npm", { "npmPublish": false, "pkgRoot": "packages/vscode" }],
     ["@semantic-release/exec", {
-      "prepareCmd": "npm run build && npx @vscode/vsce package",
-      "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then npx @vscode/vsce publish -p $VSCE_PAT; fi"
+      "prepareCmd": "npm version ${nextRelease.version} --workspaces --include-workspace-root --no-git-tag-version --allow-same-version && npm run build && cp README.md CHANGELOG.md packages/vscode/ && cd packages/vscode && npx @vscode/vsce package --no-dependencies",
+      "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then cd packages/vscode && npx @vscode/vsce publish -p $VSCE_PAT --packagePath ./*.vsix; fi"
     }],
     ["@semantic-release/git", {
-      "assets": ["package.json", "package-lock.json", "CHANGELOG.md"],
+      "assets": ["package.json", "packages/vscode/package.json", "package-lock.json", "CHANGELOG.md"],
       "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
     }],
     ["@semantic-release/github", {
       "assets": [
-        {"path": "*.vsix", "label": "VS Code Extension"}
+        {"path": "packages/vscode/*.vsix", "label": "VS Code Extension"}
       ]
     }]
   ]
