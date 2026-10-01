@@ -264,6 +264,12 @@
         "key": "alt+m",
         "mac": "alt+m",
         "when": "vscodeComment.changedFiles.focus || commentController == vscode-comment"
+      },
+      {
+        "command": "editor.action.submitComment",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "commentEditorFocused && commentController == vscode-comment"
       }
     ],
     "menus": {
