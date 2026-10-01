@@ -20,7 +20,7 @@ export HITL_RUN="$TMPDIR/verify-hitl-review/$(date +%s)"   # one dir per run; de
 
 | Command | Does |
 |---|---|
-| `$H launch` | Build `out/extension.js`, create the fixture repo, start VS Code, open Source Control, expand the view, wait for activation. Prints `{"ready":true,...}` JSON. |
+| `$H launch` | Build `packages/vscode/out/extension.js` (`npm run build -w local-hitl-review`), create the fixture repo, start VS Code, open Source Control, expand the view, wait for activation. Prints `{"ready":true,...}` JSON. |
 | `$H doctor` | Read-only health check. Prints JSON and exits 0 only when the instance is safe to drive. |
 | `$H palette "<command title>"` | F1, type the title, pick the row whose label **starts with** it, Enter. |
 | `$H click <css> [text]` / `$H dblclick <css> [text]` | Real mouse click at the centre of the first visible match (aria-label or text contains `text`). |
@@ -40,6 +40,7 @@ $H launch && $H doctor
 ```
 
 - **Fixture.** A new git repo at `$HITL_RUN/instance/fixture`. Branch `main` has `README.md` and `src/app.ts`. The checked-out branch `feature/review-me` modifies `src/app.ts` (adds `// TODO validate input` on line 2) and adds `src/new.ts`. The extension auto-detects `main` as the base.
+- **Extension under test.** The repo is an npm-workspaces monorepo. `launch` loads `packages/vscode` via `--extensionDevelopmentPath`; `packages/core` is not used by the extension. `node_modules/` and `.vscode-test/` stay at the repo root. A stale root-level `out/` from before the move is ignored.
 - **VS Code binary.** `@vscode/test-electron` downloads the latest stable release into `.vscode-test/` (about 300 MB on first run, cached after that). To use a specific build, set `HITL_CODE=/path/to/Code`.
 - **Ready.** `launch` prints `"ready":true` once the extension host log shows `ExtensionService#_doActivateExtension pablo.local-hitl-review`. Activation is lazy (`onView:vscodeComment.changedFiles`), so `launch` expands the "Local HITL Review" view the way a user would.
 - **Launch is one-shot.** It returns once the instance is ready, and the window keeps running between commands. If you rebuild, `doctor` reports `buildFresh: false`. Run `stop` and then `launch` to load the new build.
@@ -57,7 +58,7 @@ If `ok` is false, run `$H logs`, then `$H stop` and `$H launch`. Never point the
 
 ## Isolation
 
-Each run has its own `--user-data-dir` (a short `$TMPDIR/hitl-XXXXXX`, because macOS limits IPC socket paths to 103 characters), its own `--extensions-dir`, its own fixture repo and its own free CDP port. Runs with different `HITL_RUN` values can therefore execute side by side and never touch the user's own VS Code profile. `--disable-extensions` turns off installed extensions, but the extension under development still loads. `launch` refuses to start when the same `HITL_RUN` already has a live instance.
+Each run has its own `--user-data-dir` (a short `$TMPDIR/hitl-XXXXXX`, because macOS limits IPC socket paths to 103 characters), its own `--extensions-dir`, its own fixture repo and its own free CDP port. Runs with different `HITL_RUN` values can therefore execute side by side and never touch the user's own VS Code profile. The profile also sets `window.menuStyle` and `window.dialogStyle` to `custom`: on macOS VS Code otherwise shows native context menus and confirm dialogs, which CDP can neither see nor click (the window then sits behind an invisible modal until `stop`). `--disable-extensions` turns off installed extensions, but the extension under development still loads. `launch` refuses to start when the same `HITL_RUN` already has a live instance.
 
 ## Drive
 
@@ -65,16 +66,27 @@ Rules that keep runs honest:
 
 - **Chain steps with `&&` or `set -e`.** If `palette` or `click` finds no match, it exits non-zero after pressing Escape. A following `type` would then insert text into whatever has focus, usually the editor, which dirties a fixture file. If that happens, run `$H palette "File: Revert File"`.
 - **Act through user paths only:** the palette, clicks on view rows, title-bar actions, keybindings. `eval` is for reading state.
-- **Read before you act.** `$H text '.pane-body .monaco-list-row' --aria` lists tree rows by accessible name, for example `M src/app.ts, has actions` or `A src/new.ts, has actions`.
+- **Read before you act.** `$H text '.pane-body .monaco-list-row' --aria` lists rows of *every* expanded pane (Changes, Graph, Local HITL Review, Review Feedback Summary, Comments). Scope to one view with `:has()`, as in the table below.
+- **Lookups wait, keys don't.** `click`/`dblclick` poll up to 5s for their target and `palette` retries up to 4 times, because diffs and context-dependent commands appear a beat late. `type` waits 500ms after inserting so a following `cmd+enter` sees the text. `key` and `eval` never wait; add `sleep` before reading results of an async action.
+- **The system clipboard is shared.** `Copy Agent Prompt` and the `Add Suggestion` fallback overwrite the user's real clipboard. Back it up first (`pbpaste > "$HITL_RUN/clip.bak"`) and restore it after (`pbcopy < "$HITL_RUN/clip.bak"`).
 - **Stable handles:**
 
 | Element | Selector and text |
 |---|---|
 | View headers | `.pane-header` with text `Local HITL Review`, `Review Feedback Summary` (aria-label ends in ` Section`, `aria-expanded` says whether it is open) |
-| Changed file rows | `.pane-body .monaco-list-row` with text `M src/app.ts` |
+| Changed file rows | `.pane:has(> .pane-header[aria-label^="Local HITL Review"]) .monaco-list-row` with text `M src/app.ts` |
+| Summary rows | `.pane:has(> .pane-header[aria-label^="Review Feedback Summary"]) .monaco-list-row` |
+| Row inline actions | `<row selector>[aria-label^="M src/app.ts"] .action-label` with text `Mark as Viewed` |
 | Code line in the open editor | `.editor-instance .view-line` with text from the line (the helper normalizes non-breaking spaces) |
 | Comment widget | `.review-widget`. When focus is inside it, `document.activeElement.closest('.review-widget')` is truthy |
-| Rendered comments | `.review-widget .review-comment` |
+| Rendered comments | `.review-widget .review-comment`; one comment is `.review-comment:nth-child(N)` |
+| Comment title actions | `.review-widget .review-comment:nth-child(N) .action-label` with text `Edit`, `Delete`, `Change Severity`, `Change Status`, `Apply Suggestion`. The first comment's toolbar may not be rendered, so an unscoped click lands on comment 2 |
+| Severity / status menu items | `.context-view .action-label` with text `Critical`, `Resolved`, … |
+| Reply box | `.review-widget .comment-form` (shows `Reply...` collapsed, `Type a new comment` expanded) |
+| Widget buttons | `.review-widget .monaco-button` with text `Add Review Comment`, `Save`, `Cancel`, `Add Suggestion` |
+| Confirm dialog | `.monaco-dialog-box .monaco-button` with text `Delete` / `Cancel` |
+| Thread gutter glyph | `.comment-range-glyph.comment-thread` (click to re-expand a collapsed thread) |
+| Notifications | Toasts auto-hide; run `$H palette "Notifications: Show Notifications"` then read `.notifications-center .notification-list-item-message` |
 | Editor tabs | `.tab` (aria-label `app.ts (vs main ↔ Working) (app.ts), preview`) |
 
 The recipes for each feature are in [`features/`](features/README.md). Read the index before driving.

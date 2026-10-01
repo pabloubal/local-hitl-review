@@ -17,6 +17,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+// npm-workspaces layout: the extension package lives in packages/vscode, while
+// node_modules and .vscode-test stay hoisted at the repo root.
+const EXT = path.join(REPO, "packages/vscode");
+const BUNDLE = path.join(EXT, "out/extension.js");
 const RUN = process.env.HITL_RUN || path.join(os.tmpdir(), "verify-hitl-review", "current");
 const STATE = path.join(RUN, "state.json");
 const EVIDENCE = path.join(RUN, "evidence");
@@ -150,16 +154,31 @@ async function locate(evaluate, selector, text) {
   })()`);
 }
 
+// Like locate, but polls for up to 5s: views and diff editors render a beat
+// after the click or command that opened them.
+async function find(evaluate, selector, text) {
+  for (let i = 0; i < 20; i++) {
+    const hit = await locate(evaluate, selector, text);
+    if (hit) return hit;
+    await sleep(250);
+  }
+  return null;
+}
+
 const commands = {
   async launch() {
     if (fs.existsSync(STATE) && alive(readState().pid)) die(`instance already running at ${RUN}; run stop first`);
+    // Fail fast if the extension package moved (it did once: root → packages/vscode).
+    const manifest = path.join(EXT, "package.json");
+    const pkg = fs.existsSync(manifest) ? JSON.parse(fs.readFileSync(manifest, "utf8")) : {};
+    if (`${pkg.publisher}.${pkg.name}` !== EXT_ID) die(`${manifest} is not ${EXT_ID}; update EXT in hitl.mjs`);
     const inst = path.join(RUN, "instance");
     fs.rmSync(inst, { recursive: true, force: true });
     fs.mkdirSync(EVIDENCE, { recursive: true });
     const workspace = path.join(inst, "fixture");
     makeFixture(workspace);
-    console.log("building extension (npm run build)...");
-    execFileSync("npm", ["run", "build", "--silent"], { cwd: REPO, stdio: "inherit" });
+    console.log("building extension (npm run build -w local-hitl-review)...");
+    execFileSync("npm", ["run", "build", "--silent", "-w", "local-hitl-review"], { cwd: REPO, stdio: "inherit" });
     const code = await codeBinary();
     const port = await freePort();
     // VS Code's IPC socket lives in the profile dir and macOS caps socket paths
@@ -176,11 +195,15 @@ const commands = {
       "window.restoreWindows": "none",
       "chat.disableAIFeatures": true,
       "workbench.secondarySideBar.defaultVisibility": "hidden",
+      // macOS defaults to native context menus and modal dialogs, which CDP
+      // cannot see or click.
+      "window.menuStyle": "custom",
+      "window.dialogStyle": "custom",
     }, null, 2));
     const log = fs.openSync(path.join(inst, "code.log"), "w");
     const child = spawn(code, [
       workspace,
-      `--extensionDevelopmentPath=${REPO}`,
+      `--extensionDevelopmentPath=${EXT}`,
       `--user-data-dir=${userData}`,
       `--extensions-dir=${path.join(inst, "extensions")}`,
       `--remote-debugging-port=${port}`,
@@ -231,8 +254,7 @@ const commands = {
       workbenchPage: false,
       windowTitle: null,
       extensionActivated: activationLogged(st.userData),
-      buildFresh: fs.existsSync(path.join(REPO, "out/extension.js")) &&
-        fs.statSync(path.join(REPO, "out/extension.js")).mtimeMs <= Date.parse(st.startedAt),
+      buildFresh: fs.existsSync(BUNDLE) && fs.statSync(BUNDLE).mtimeMs <= Date.parse(st.startedAt),
       fixtureBranch: null,
     };
     try {
@@ -246,7 +268,7 @@ const commands = {
     const ok = checks.pidAlive && checks.cdp && checks.workbenchPage && checks.extensionActivated &&
       checks.fixtureBranch === "feature/review-me";
     console.log(JSON.stringify({ ok, run: RUN, port: st.port, pid: st.pid, ...checks }, null, 2));
-    if (!checks.buildFresh) console.log("note: out/extension.js was rebuilt after launch; restart to load it");
+    if (!checks.buildFresh) console.log("note: packages/vscode/out/extension.js is missing or was rebuilt after launch; restart to load it");
     process.exit(ok ? 0 : 1);
   },
 
@@ -259,6 +281,9 @@ const commands = {
   async type(text) {
     const c = await connect();
     await c.send("Input.insertText", { text });
+    // Comment widgets sync their input to the extension host asynchronously; a
+    // submit key sent right after typing can find the reply still empty.
+    await sleep(500);
     c.close();
   },
 
@@ -266,13 +291,20 @@ const commands = {
   // row whose label starts with that title (case-insensitive), Enter.
   async palette(title) {
     const c = await connect();
-    await pressKey(c.send, "f1");
-    await sleep(400);
-    await c.send("Input.insertText", { text: title });
-    await sleep(700);
-    const rows = await c.evaluate(`[...document.querySelectorAll('.quick-input-widget .monaco-list-row')]
-      .map((r) => r.getAttribute('aria-label') || '')`);
-    const idx = rows.findIndex((l) => l.toLowerCase().startsWith(title.toLowerCase()));
+    // Context-dependent commands (e.g. adding a comment in a just-opened diff)
+    // appear a beat late, so retry a few times before giving up.
+    let rows = [];
+    let idx = -1;
+    for (let attempt = 0; attempt < 4 && idx < 0; attempt++) {
+      if (attempt) { await pressKey(c.send, "escape"); await sleep(1000); }
+      await pressKey(c.send, "f1");
+      await sleep(400);
+      await c.send("Input.insertText", { text: title });
+      await sleep(700);
+      rows = await c.evaluate(`[...document.querySelectorAll('.quick-input-widget .monaco-list-row')]
+        .map((r) => r.getAttribute('aria-label') || '')`);
+      idx = rows.findIndex((l) => l.toLowerCase().startsWith(title.toLowerCase()));
+    }
     if (idx < 0) {
       await pressKey(c.send, "escape");
       c.close();
@@ -286,7 +318,7 @@ const commands = {
 
   async click(selector, text) {
     const c = await connect();
-    const hit = await locate(c.evaluate, selector, text);
+    const hit = await find(c.evaluate, selector, text);
     if (!hit) { c.close(); die(`no visible element for ${selector}${text ? ` containing "${text}"` : ""}`); }
     await clickAt(c.send, hit.x, hit.y);
     console.log(`clicked: ${hit.label}`);
@@ -295,7 +327,7 @@ const commands = {
 
   async dblclick(selector, text) {
     const c = await connect();
-    const hit = await locate(c.evaluate, selector, text);
+    const hit = await find(c.evaluate, selector, text);
     if (!hit) { c.close(); die(`no visible element for ${selector}${text ? ` containing "${text}"` : ""}`); }
     for (const type of ["mousePressed", "mouseReleased"]) {
       for (const clickCount of [1, 2]) {
