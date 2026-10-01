@@ -37,23 +37,23 @@ Every file starts with frontmatter between two `---` lines, followed by a markdo
 
 ## `thread.md`
 
-| Key                    | Required    | Values                              | Meaning                                                                                         |
-| ---------------------- | ----------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `anchor.kind`          | yes         | `line`, `file`                      | Line-range thread or file-level thread                                                          |
-| `anchor.path`          | yes         | repo-relative POSIX path            | The file the thread is on                                                                       |
-| `anchor.side`          | yes         | `new`, `old`                        | Side of a diff (mapped to GitHub `RIGHT`/`LEFT` on push)                                        |
-| `anchor.commit`        | yes         | full commit SHA                     | `HEAD` when the thread was created; for the `old` side, the base commit compared against        |
-| `anchor.branch`        | no          | branch name                         | Branch checked out at creation; absent when detached                                            |
-| `anchor.blob`          | `line` only | git object ID                       | `git hash-object -w` of the file content the line numbers refer to (includes uncommitted edits) |
-| `anchor.startLine`     | `line` only | integer ≥ 1                         | First anchored line, 1-based                                                                    |
-| `anchor.endLine`       | `line` only | integer ≥ `startLine`               | Last anchored line, inclusive                                                                   |
-| `anchor.contextBefore` | `line` only | integer ≥ 0                         | Snapshot lines before `startLine` (normally 3, fewer at the top of a file)                      |
-| `anchor.contextAfter`  | `line` only | integer ≥ 0                         | Snapshot lines after `endLine`                                                                  |
-| `severity`             | no          | `critical`, `high`, `medium`, `low` | Starting severity; default `medium`                                                             |
+| Key                    | Required    | Values                              | Meaning                                                                                                      |
+| ---------------------- | ----------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `anchor.kind`          | yes         | `line`, `file`                      | Line-range thread or file-level thread                                                                       |
+| `anchor.path`          | yes         | repo-relative POSIX path            | The file the thread is on                                                                                    |
+| `anchor.side`          | yes         | `new`, `old`                        | Side of a diff (mapped to GitHub `RIGHT`/`LEFT` on push)                                                     |
+| `anchor.commit`        | yes         | full commit SHA                     | `HEAD` when the thread was created; for the `old` side, the base commit compared against                     |
+| `anchor.branch`        | no          | branch name                         | Branch checked out at creation; absent when detached                                                         |
+| `anchor.blob`          | `line` only | git object ID                       | `git hash-object -w --no-filters` of the file content the line numbers refer to (includes uncommitted edits) |
+| `anchor.startLine`     | `line` only | integer ≥ 1                         | First anchored line, 1-based                                                                                 |
+| `anchor.endLine`       | `line` only | integer ≥ `startLine`               | Last anchored line, inclusive                                                                                |
+| `anchor.contextBefore` | `line` only | integer ≥ 0                         | Snapshot lines before `startLine` (normally 3, fewer at the top of a file)                                   |
+| `anchor.contextAfter`  | `line` only | integer ≥ 0                         | Snapshot lines after `endLine`                                                                               |
+| `severity`             | no          | `critical`, `high`, `medium`, `low` | Starting severity; default `medium`                                                                          |
 
 **Body:** for a `line` thread, exactly one fenced code block holding the snapshot: `contextBefore` lines, the anchored lines, then `contextAfter` lines, byte for byte. The fence is longer than any backtick run in the snapshot; the info string may name the language. For a `file` thread the body is empty.
 
-The snapshot exists because git may garbage-collect `anchor.blob`. Anchoring falls back to searching for it (see the anchor-state decision).
+The snapshot exists because git may garbage-collect `anchor.blob`. Anchoring then searches for the snapshot text instead (see [ADR 0006](../adr/0006-comment-anchoring.md)).
 
 ## Message file
 
@@ -139,7 +139,7 @@ These are calculated by the core and never written:
 - **Status:** `open`, unless the latest message that sets `status` sets `resolved` and no message comes after it. A later message without `status` reopens the thread.
 - **Severity:** set by the latest message that sets `severity`, otherwise by `thread.md`, otherwise `medium`.
 - **Whose turn:** the `author.kind` of the last message.
-- **Anchor state** (current, outdated or orphaned) and current lines: see the anchor-state decision.
+- **Anchor state** (current, outdated or orphaned) and current lines: see [ADR 0006](../adr/0006-comment-anchoring.md).
 - **Inbox:** open, submitted threads where it's the agent's turn (see [`core-api.md`](core-api.md)). There is no read state.
 - **Nudge delivery:** kept locally, outside the shared tree.
 

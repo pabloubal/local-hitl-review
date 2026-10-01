@@ -115,7 +115,7 @@ interface AnchorResult {
 }
 ```
 
-- **Batched**, so all threads on a file share one diff: 200 threads went from 8.6 s to 1.1 s in the re-anchoring prototype. The algorithm is the subject of the anchoring ADR.
+- **Batched**, so all threads on a file share one diff: 200 threads went from 8.6 s to 1.1 s in the re-anchoring prototype. The algorithm is in [ADR 0006](../adr/0006-comment-anchoring.md).
 - `overrides` replaces the on-disk content of a path, so the extension can re-anchor while a document has unsaved changes.
 - **`old`-side threads aren't re-anchored.** They keep their saved lines against `anchor.commit` and report `current` with `method: "pinned"`. If the commit is unreachable and the snapshot can't be found, they report `orphaned`.
 - File threads report `current` while their file exists (after following renames), otherwise `orphaned`.
