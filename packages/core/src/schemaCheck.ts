@@ -1,5 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
-import * as path from 'node:path';
+import messageSchema from '../schema/message.schema.json';
+import pushSchema from '../schema/push.schema.json';
+import roundSchema from '../schema/round.schema.json';
+import threadSchema from '../schema/thread.schema.json';
 import type { FrontmatterData } from './frontmatter.js';
 
 /** Keywords allowed at the schema root. Anything else throws at load time. */
@@ -165,30 +167,18 @@ function article(type: SchemaType): string {
 
 export type SchemaKind = 'thread' | 'message' | 'round' | 'push';
 
-/** Finds `<package>/schema` by walking up from this module (works from src/ and out/src/). */
-function schemaDir(): string {
-  let dir = __dirname;
-  for (let i = 0; i < 5; i++) {
-    const candidate = path.join(dir, 'schema');
-    if (existsSync(path.join(candidate, 'thread.schema.json'))) return candidate;
-    dir = path.dirname(dir);
-  }
-  throw new Error('cannot locate the shipped JSON Schemas (schema/ directory)');
-}
-
 let cache: Record<SchemaKind, Schema> | undefined;
 
-/** Loads and compiles the shipped schemas; cached after the first call. */
+/**
+ * Compiles the shipped schemas (imported as JSON modules, so bundlers inline
+ * them); cached after the first call.
+ */
 export function loadSchemas(): Record<SchemaKind, Schema> {
-  if (cache) return cache;
-  const dir = schemaDir();
-  const load = (kind: SchemaKind): Schema =>
-    compileSchema(JSON.parse(readFileSync(path.join(dir, `${kind}.schema.json`), 'utf8')));
-  cache = {
-    thread: load('thread'),
-    message: load('message'),
-    round: load('round'),
-    push: load('push'),
+  cache ??= {
+    thread: compileSchema(threadSchema),
+    message: compileSchema(messageSchema),
+    round: compileSchema(roundSchema),
+    push: compileSchema(pushSchema),
   };
   return cache;
 }

@@ -1,5 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import threadSchema from '../schema/thread.schema.json';
+import messageSchema from '../schema/message.schema.json';
+import roundSchema from '../schema/round.schema.json';
+import pushSchema from '../schema/push.schema.json';
 import { compileSchema, loadSchemas, unknownKeys, validate } from '../src/schemaCheck.js';
 
 const base = {
@@ -105,5 +109,11 @@ describe('shipped schemas', () => {
       'anchor.side',
       'anchor.commit',
     ]);
+  });
+
+  it('compile from the imported JSON objects', () => {
+    for (const raw of [threadSchema, messageSchema, roundSchema, pushSchema]) {
+      assert.ok(compileSchema(raw).id.endsWith('.schema.json'));
+    }
   });
 });
