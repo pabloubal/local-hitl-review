@@ -1,11 +1,11 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { LhrError, type Diagnostic } from './errors.js';
 import { checkFormat } from './format.js';
 import { parseFrontmatter, type FrontmatterData } from './frontmatter.js';
-import { parseId } from './ids.js';
+import { parseId, parseMessageFileName } from './ids.js';
 import { DiagnosticCode } from './model.js';
-import { extractSnapshot, readTree } from './read.js';
+import { extractSnapshot } from './read.js';
 import { loadSchemas, unknownKeys, validate, type SchemaKind } from './schemaCheck.js';
 
 export interface CheckResult {
@@ -22,17 +22,10 @@ const LINE_KEYS = [
 ] as const;
 const ID_RE = /^[0-9]{8}T[0-9]{6}Z-[a-z2-7]{6}$/;
 
-/** Problems readTree finds that the schema pass reports itself (or reports with more detail). */
-const OWNED_BY_SCHEMA_PASS: readonly string[] = [
-  DiagnosticCode.FrontmatterSyntax,
-  DiagnosticCode.MissingKey,
-  DiagnosticCode.InvalidValue,
-];
-
 interface Entry {
   name: string;
+  /** A directory, or a symlink to one. */
   isDir: boolean;
-  isFile: boolean;
 }
 
 interface ParsedFile {
@@ -64,16 +57,19 @@ class Checker {
 
   async list(rel: string): Promise<Entry[]> {
     try {
-      const entries = await readdir(path.join(this.root, rel), {
-        withFileTypes: true,
-      });
-      return entries
-        .map((e) => ({
-          name: e.name,
-          isDir: e.isDirectory(),
-          isFile: e.isFile(),
-        }))
-        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      const entries = await readdir(path.join(this.root, rel), { withFileTypes: true });
+      const out: Entry[] = [];
+      for (const e of entries) {
+        let isDir = e.isDirectory();
+        if (e.isSymbolicLink()) {
+          isDir = await stat(path.join(this.root, rel, e.name)).then(
+            (st) => st.isDirectory(),
+            () => false,
+          );
+        }
+        out.push({ name: e.name, isDir });
+      }
+      return out.sort((a, b) => cmp(a.name, b.name));
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== 'ENOENT' && code !== 'ENOTDIR') this.unreadable(rel, code);
@@ -92,7 +88,7 @@ class Checker {
       text = await readFile(path.join(this.root, rel), 'utf8');
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT') this.unreadable(rel, code);
+      this.unreadable(rel, code);
       return undefined;
     }
     const parsed = parseFrontmatter(text, rel);
@@ -187,10 +183,11 @@ class Checker {
   }
 
   checkPushBody(rel: string, f: ParsedFile, threadIds: Set<string>, messageIds: Set<string>): void {
-    const block = extractSnapshot(f.body);
+    const blocks = fencedBlocks(f.body);
     let json: unknown;
     try {
-      json = block === undefined ? undefined : JSON.parse(block);
+      json =
+        blocks?.length === 1 && blocks[0].info === 'json' ? JSON.parse(blocks[0].text) : undefined;
     } catch {
       json = undefined;
     }
@@ -257,6 +254,36 @@ async function formatDiagnostic(root: string): Promise<Diagnostic | undefined> {
   }
 }
 
+interface FencedBlock {
+  info: string;
+  text: string;
+}
+
+/** All fenced code blocks of a body; undefined when a fence is never closed. */
+function fencedBlocks(body: string): FencedBlock[] | undefined {
+  const lines = body.split('\n').map((l) => l.replace(/\r$/, ''));
+  const blocks: FencedBlock[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const open = /^(`{3,})([^`]*)$/.exec(lines[i]);
+    if (!open) continue;
+    const closeRe = new RegExp(`^\`{${open[1].length},}[ \\t]*$`);
+    let j = i + 1;
+    while (j < lines.length && !closeRe.test(lines[j])) j++;
+    if (j >= lines.length) return undefined;
+    blocks.push({ info: open[2].trim(), text: lines.slice(i + 1, j).join('\n') });
+    i = j;
+  }
+  return blocks;
+}
+
+interface Group {
+  id: string;
+  rel: string;
+  submitted: boolean;
+  /** `*.md` entries, whatever their type; non-files are reported when read. */
+  files: Entry[];
+}
+
 /**
  * Validates the whole tree, drafts included, against file-format-v2 § Validation.
  * Content problems become diagnostics; only operational failures throw.
@@ -267,120 +294,136 @@ export async function checkTree(root: string): Promise<CheckResult> {
   const format = await formatDiagnostic(root);
   if (format) c.out.push(format);
 
-  // Structural rules (names, directories, authorship, empty threads/bodies) come from the reader.
-  const records = await readTree(root);
-  c.out.push(...records.problems.filter((p) => !OWNED_BY_SCHEMA_PASS.includes(p.code)));
-
   const [threadDirs, draftDirs, roundEntries, pushEntries] = await Promise.all([
     c.list('.lhr/threads'),
     c.list('.lhr/drafts/threads'),
     c.list('.lhr/rounds'),
     c.list('.lhr/pushes'),
   ]);
+  // A `*.md` directory is not a valid file either; reading it reports UNREADABLE_FILE.
+  const mdEntries = (entries: Entry[]): Entry[] => entries.filter((e) => e.name.endsWith('.md'));
+
+  const groups: Group[] = [];
+  for (const [entries, base, submitted] of [
+    [threadDirs, '.lhr/threads', true],
+    [draftDirs, '.lhr/drafts/threads', false],
+  ] as const) {
+    for (const e of entries.filter((x) => x.isDir)) {
+      const rel = `${base}/${e.name}`;
+      groups.push({ id: e.name, rel, submitted, files: mdEntries(await c.list(rel)) });
+    }
+  }
 
   const roundIds = new Set(
-    roundEntries
-      .filter((e) => e.isFile && e.name.endsWith('.md'))
+    mdEntries(roundEntries)
       .map((e) => e.name.slice(0, -3))
       .filter((id) => parseId(id) !== undefined),
   );
-  const threadIds = new Set(threadDirs.filter((e) => e.isDir).map((e) => e.name));
-  const messageIds = new Set<string>();
-  const pending: { thread: string; clientId: string; rel: string }[] = [];
-
-  const groups = [
-    ...threadDirs
-      .filter((e) => e.isDir)
-      .map((e) => ({
-        id: e.name,
-        rel: `.lhr/threads/${e.name}`,
-        submitted: true,
-      })),
-    ...draftDirs
-      .filter((e) => e.isDir)
-      .map((e) => ({
-        id: e.name,
-        rel: `.lhr/drafts/threads/${e.name}`,
-        submitted: false,
-      })),
-  ];
-
-  await Promise.all(
-    groups.map(async (g) => {
-      const entries = (await c.list(g.rel)).filter((e) => e.isFile && e.name.endsWith('.md'));
-      const local = new Checker(root);
-      for (const e of entries) {
-        const rel = `${g.rel}/${e.name}`;
-        if (e.name === THREAD_FILE) {
-          const f = await local.file(rel, 'thread');
-          if (f) local.checkThreadMd(rel, f);
-          continue;
-        }
-        if (g.submitted) messageIds.add(e.name.slice(0, -3));
-        const f = await local.file(rel, 'message');
-        if (!f) continue;
-        const { data } = f;
-        if (data['author.kind'] === 'agent' && data['author.session'] === undefined) {
-          local.add(
-            'warning',
-            DiagnosticCode.MissingAuthorSession,
-            rel,
-            'agent message has no "author.session"',
-          );
-        }
-        const round = data.round;
-        if (typeof round === 'string' && ID_RE.test(round) && !roundIds.has(round)) {
-          local.error(DiagnosticCode.UnknownRound, rel, `round "${round}" does not exist`);
-        }
-        const clientId = data.clientId;
-        if (typeof clientId === 'string') {
-          pending.push({ thread: g.id, clientId, rel });
-        }
-      }
-      c.out.push(...local.out);
-    }),
+  const submittedIds = new Set(groups.filter((g) => g.submitted).map((g) => g.id));
+  const draftsWithMessages = new Set(
+    groups
+      .filter((g) => !g.submitted && g.files.some((f) => f.name !== THREAD_FILE))
+      .map((g) => g.id),
   );
+  const messageIds = new Set<string>();
+  const clientUses: { thread: string; clientId: string; rel: string; draft: boolean }[] = [];
 
-  // Duplicate clientIds: the first file in path order keeps it, later ones are flagged.
+  for (const g of groups) {
+    if (parseId(g.id) === undefined) {
+      c.error(DiagnosticCode.InvalidFileName, g.rel, 'thread directory name is not a valid ID');
+    }
+    const messages = g.files.filter((f) => f.name !== THREAD_FILE);
+    const hasThreadMd = g.files.some((f) => f.name === THREAD_FILE);
+    if (hasThreadMd) {
+      const rel = `${g.rel}/${THREAD_FILE}`;
+      const f = await c.file(rel, 'thread');
+      if (f) c.checkThreadMd(rel, f);
+    } else if (g.submitted || !submittedIds.has(g.id)) {
+      c.error(DiagnosticCode.MissingThreadMd, g.rel, `thread directory has no ${THREAD_FILE}`);
+    }
+    if (g.submitted && messages.length === 0 && !draftsWithMessages.has(g.id)) {
+      c.error(DiagnosticCode.EmptyThread, g.rel, 'submitted thread has no messages');
+    }
+    for (const e of messages) {
+      const rel = `${g.rel}/${e.name}`;
+      const id = e.name.slice(0, -3);
+      if (g.submitted) messageIds.add(id);
+      const name = parseMessageFileName(e.name);
+      if (!name)
+        c.error(DiagnosticCode.InvalidFileName, rel, 'message file name is not a valid ID');
+      const f = await c.file(rel, 'message');
+      if (!f) continue;
+      const { data } = f;
+      const kind = data['author.kind'];
+      if (name && (kind === 'human' || kind === 'agent') && kind !== name.kind) {
+        c.error(
+          DiagnosticCode.AuthorKindMismatch,
+          rel,
+          `author.kind "${kind}" does not match the file name kind "${name.kind}"`,
+        );
+      }
+      if (kind === 'agent' && data['author.session'] === undefined) {
+        c.add(
+          'warning',
+          DiagnosticCode.MissingAuthorSession,
+          rel,
+          'agent message has no "author.session"',
+        );
+      }
+      if (f.body.trim() === '' && data.status === undefined && data.severity === undefined) {
+        c.error(
+          DiagnosticCode.EmptyBody,
+          rel,
+          'message body is empty and neither status nor severity is set',
+        );
+      }
+      const round = data.round;
+      if (typeof round === 'string' && ID_RE.test(round) && !roundIds.has(round)) {
+        c.error(DiagnosticCode.UnknownRound, rel, `round "${round}" does not exist`);
+      }
+      if (typeof data.clientId === 'string') {
+        clientUses.push({ thread: g.id, clientId: data.clientId, rel, draft: !g.submitted });
+      }
+    }
+  }
+
+  // Duplicate clientIds: submitted before draft, then by file name; later files are flagged.
+  clientUses.sort(
+    (a, b) =>
+      Number(a.draft) - Number(b.draft) ||
+      cmp(a.rel.split('/').pop() ?? '', b.rel.split('/').pop() ?? '') ||
+      cmp(a.rel, b.rel),
+  );
   const firstUse = new Map<string, string>();
-  pending.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-  for (const p of pending) {
-    const k = `${p.thread}\u0000${p.clientId}`;
-    const first = firstUse.get(k);
-    if (first === undefined) firstUse.set(k, p.rel);
-    else if (first !== p.rel) {
+  for (const u of clientUses) {
+    const key = `${u.thread}\u0000${u.clientId}`;
+    const first = firstUse.get(key);
+    if (first === undefined) firstUse.set(key, u.rel);
+    else if (first !== u.rel) {
       c.error(
         DiagnosticCode.DuplicateClientId,
-        p.rel,
-        `clientId "${p.clientId}" is already used in ${first}`,
+        u.rel,
+        `clientId "${u.clientId}" is already used in ${first}`,
       );
     }
   }
 
-  await Promise.all(
-    roundEntries
-      .filter((e) => e.isFile && e.name.endsWith('.md'))
-      .map(async (e) => {
-        const local = new Checker(root);
-        await local.file(`.lhr/rounds/${e.name}`, 'round');
-        c.out.push(...local.out);
-      }),
-  );
+  for (const e of mdEntries(roundEntries)) {
+    const rel = `.lhr/rounds/${e.name}`;
+    if (parseId(e.name.slice(0, -3)) === undefined) {
+      c.error(DiagnosticCode.InvalidFileName, rel, 'round file name is not a valid ID');
+    }
+    await c.file(rel, 'round');
+  }
 
-  await Promise.all(
-    pushEntries
-      .filter((e) => e.isFile && e.name.endsWith('.md'))
-      .map(async (e) => {
-        const rel = `.lhr/pushes/${e.name}`;
-        const local = new Checker(root);
-        if (parseId(e.name.slice(0, -3)) === undefined) {
-          local.error(DiagnosticCode.InvalidFileName, rel, 'push file name is not a valid ID');
-        }
-        const f = await local.file(rel, 'push');
-        if (f) local.checkPushBody(rel, f, threadIds, messageIds);
-        c.out.push(...local.out);
-      }),
-  );
+  for (const e of mdEntries(pushEntries)) {
+    const rel = `.lhr/pushes/${e.name}`;
+    if (parseId(e.name.slice(0, -3)) === undefined) {
+      c.error(DiagnosticCode.InvalidFileName, rel, 'push file name is not a valid ID');
+    }
+    const f = await c.file(rel, 'push');
+    if (f) c.checkPushBody(rel, f, submittedIds, messageIds);
+  }
 
   return { diagnostics: finish(c.out) };
 }

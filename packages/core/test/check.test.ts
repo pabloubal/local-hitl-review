@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { rm, writeFile } from 'node:fs/promises';
+import { chmod, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { openTree, type Diagnostic } from '../src/index.js';
 import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
@@ -384,5 +384,140 @@ describe('check()', () => {
     for (const d of diags) {
       assert.ok(d.code && d.path && !d.path.includes('\\'));
     }
+  });
+});
+
+function has(
+  diags: Diagnostic[],
+  code: string,
+  p: string,
+  severity: 'error' | 'warning' = 'error',
+): boolean {
+  return diags.some((d) => d.code === code && d.path === p && d.severity === severity);
+}
+
+describe('check() reports every bad file', () => {
+  it('checks messages even when thread.md is broken', async () => {
+    const mAgent = '20260101T100400Z-human-bbbbbb';
+    const mEmpty = '20260101T100500Z-human-hhhhhh';
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread().replace('anchor.side: new', 'anchor.side: sideways'));
+      await r.write(`${THREAD_DIR}/${mAgent}.md`, msg('author.session: s\n', 'agent'));
+      await r.write(`${THREAD_DIR}/bad-name.md`, msg());
+      await r.write(`${THREAD_DIR}/${mEmpty}.md`, msg('', 'human', ''));
+    });
+    assert.ok(has(diags, 'INVALID_VALUE', THREAD_MD));
+    assert.ok(has(diags, 'AUTHOR_KIND_MISMATCH', `${THREAD_DIR}/${mAgent}.md`));
+    assert.ok(has(diags, 'INVALID_FILE_NAME', `${THREAD_DIR}/bad-name.md`));
+    assert.ok(has(diags, 'EMPTY_BODY', `${THREAD_DIR}/${mEmpty}.md`));
+  });
+
+  it('checks draft messages even when the draft thread.md is broken', async () => {
+    const t3 = '20260103T100000Z-cccccc';
+    const m = '20260103T100100Z-human-eeeeee';
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/drafts/threads/${t3}/thread.md`, '---\nbroken\n---\n');
+      await r.write(`.lhr/drafts/threads/${t3}/${m}.md`, msg('', 'human', ''));
+    });
+    assert.ok(has(diags, 'FRONTMATTER_SYNTAX', `.lhr/drafts/threads/${t3}/thread.md`));
+    assert.ok(has(diags, 'EMPTY_BODY', `.lhr/drafts/threads/${t3}/${m}.md`));
+  });
+
+  it('flags the draft file for a clientId already used by a submitted message', async () => {
+    const early = '20260101T090000Z-human-zzzzzz';
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await r.write(`.lhr/drafts/threads/${T1}/${early}.md`, msg('clientId: abc\n'));
+    });
+    expectOnly(diags, 'DUPLICATE_CLIENT_ID', `.lhr/drafts/threads/${T1}/${early}.md`);
+  });
+
+  it('flags the later of two draft files for a duplicate clientId', async () => {
+    const t3 = '20260103T100000Z-cccccc';
+    const a = '20260103T100100Z-human-aaaaaa';
+    const b = '20260103T100200Z-human-bbbbbb';
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/drafts/threads/${t3}/thread.md`, FILE_THREAD);
+      await r.write(`.lhr/drafts/threads/${t3}/${a}.md`, msg('clientId: q\n'));
+      await r.write(`.lhr/drafts/threads/${t3}/${b}.md`, msg('clientId: q\n'));
+    });
+    expectOnly(diags, 'DUPLICATE_CLIENT_ID', `.lhr/drafts/threads/${t3}/${b}.md`);
+  });
+
+  const pushWith = (body: string): string => push().split('---\n```')[0] + `---\n${body}`;
+  const json = '```json\n{"threads":{},"messages":{}}\n```\n';
+
+  for (const [name, body] of [
+    ['a non-json fence', '```yaml\nthreads: {}\n```\n'],
+    ['no fence', 'nothing here\n'],
+    ['two json fences', json + json],
+  ] as const) {
+    it(`errors on a push body with ${name}`, async () => {
+      const diags = await run(async (r) => {
+        await r.write(`.lhr/pushes/${P1}.md`, pushWith(body));
+      });
+      expectOnly(diags, 'INVALID_PUSH_BODY', `.lhr/pushes/${P1}.md`);
+    });
+  }
+});
+
+describe('check() with odd file system entries', () => {
+  const NAME = '20260101T100300Z-human-eeeeee.md';
+
+  it('reports a directory where a message file is expected', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${NAME}/inner.txt`, 'x');
+    });
+    expectOnly(diags, 'UNREADABLE_FILE', `${THREAD_DIR}/${NAME}`);
+  });
+
+  it('reports directories named like thread.md, round and push files', async () => {
+    const diags = await run(async (r) => {
+      await rm(path.join(r.root, THREAD_MD));
+      await r.write(`${THREAD_MD}/inner.txt`, 'x');
+      await r.write(`.lhr/rounds/20260101T130000Z-hhhhhh.md/inner.txt`, 'x');
+      await r.write(`.lhr/pushes/20260101T130000Z-iiiiii.md/inner.txt`, 'x');
+    });
+    assert.deepEqual(
+      diags.map((d) => [d.code, d.path]),
+      [
+        ['UNREADABLE_FILE', THREAD_MD],
+        ['UNREADABLE_FILE', '.lhr/pushes/20260101T130000Z-iiiiii.md'],
+        ['UNREADABLE_FILE', '.lhr/rounds/20260101T130000Z-hhhhhh.md'],
+      ].sort((a, b) => (a[1] < b[1] ? -1 : 1)),
+    );
+  });
+
+  it('validates the target of a symlinked message', async () => {
+    const diags = await run(async (r) => {
+      await r.write('outside/bad.txt', '---\nno colon\n---\n');
+      await r.write('outside/good.txt', msg());
+      await symlink(path.join(r.root, 'outside/bad.txt'), path.join(r.root, THREAD_DIR, NAME));
+      await symlink(
+        path.join(r.root, 'outside/good.txt'),
+        path.join(r.root, THREAD_DIR, '20260101T100400Z-human-ffffff.md'),
+      );
+    });
+    expectOnly(diags, 'FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`);
+  });
+
+  it('reports a broken symlink', async () => {
+    const diags = await run(async (r) => {
+      await symlink(path.join(r.root, 'nowhere'), path.join(r.root, THREAD_DIR, NAME));
+    });
+    expectOnly(diags, 'UNREADABLE_FILE', `${THREAD_DIR}/${NAME}`);
+  });
+
+  it('reports an unreadable file', async (t) => {
+    if (process.getuid?.() === 0) return t.skip('running as root');
+    const target = `${THREAD_DIR}/${NAME}`;
+    let file = '';
+    const diags = await run(async (r) => {
+      await r.write(target, msg());
+      file = path.join(r.root, target);
+      await chmod(file, 0o000);
+    });
+    expectOnly(diags, 'UNREADABLE_FILE', target);
+    void file;
   });
 });
