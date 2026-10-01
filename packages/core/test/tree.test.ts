@@ -66,7 +66,9 @@ describe('openTree', () => {
     try {
       await mkdir(path.join(repo.root, 'sub'));
       await assert.rejects(openTree({ root: path.join(repo.root, 'sub') }), (err: unknown) => {
-        return err instanceof LhrError && err.code === 'NOT_A_REPO' && err.message.includes(repo.root);
+        return (
+          err instanceof LhrError && err.code === 'NOT_A_REPO' && err.message.includes(repo.root)
+        );
       });
     } finally {
       await repo.cleanup();
@@ -100,6 +102,32 @@ describe('openTree', () => {
       );
     } finally {
       await repo.cleanup();
+    }
+  });
+
+  it('NOT_A_REPO includes git stderr', async () => {
+    const dir = await createTempDir();
+    try {
+      await assert.rejects(openTree({ root: dir.root }), (err: unknown) => {
+        return (
+          err instanceof LhrError &&
+          err.code === 'NOT_A_REPO' &&
+          /not a git repository/i.test(err.message)
+        );
+      });
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
+  it('NOT_A_REPO when root is a file', async () => {
+    const dir = await createTempDir();
+    try {
+      const f = path.join(dir.root, 'f.txt');
+      await writeFile(f, 'x');
+      await assert.rejects(openTree({ root: f }), hasCode('NOT_A_REPO'));
+    } finally {
+      await dir.cleanup();
     }
   });
 
@@ -186,5 +214,35 @@ describe('dispose', () => {
     } finally {
       await repo.cleanup();
     }
+  });
+});
+
+describe('GitBatch failure modes', () => {
+  it('rejects pending reads with GIT_FAILED when disposed', async () => {
+    await withTree(async (tree, repo) => {
+      await repo.write('a.txt', 'a');
+      await repo.git('add', 'a.txt');
+      await repo.git('commit', '-q', '-m', 'init');
+      const reads = Array.from({ length: 5 }, () => tree.git.read('HEAD:a.txt'));
+      const settled = Promise.allSettled(reads);
+      await tree.dispose();
+      const results = await settled;
+      for (const r of results) {
+        assert.equal(r.status, 'rejected');
+        assert.ok(hasCode('GIT_FAILED')((r as PromiseRejectedResult).reason));
+      }
+    });
+  });
+
+  it('rejects reads with GIT_FAILED when the child is killed, and dispose resolves', async () => {
+    await withTree(async (tree) => {
+      const pid = tree.git.pid;
+      assert.ok(pid !== undefined);
+      const pending = tree.git.read('HEAD:x');
+      process.kill(pid, 'SIGKILL');
+      await assert.rejects(pending, hasCode('GIT_FAILED'));
+      await assert.rejects(tree.git.read('HEAD:x'), hasCode('GIT_FAILED'));
+      await tree.dispose();
+    });
   });
 });

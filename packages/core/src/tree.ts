@@ -1,7 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
 import { LhrError } from './errors.js';
 import { checkFormat } from './format.js';
-import { GitBatch, runGit } from './git.js';
+import { GitBatch, GitExitError, runGit } from './git.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
 
 export interface Host {
@@ -62,15 +62,15 @@ export async function openTree(host: Host): Promise<LhrTree> {
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       throw new LhrError('NOT_A_REPO', `${root} does not exist`);
     }
-    throw err;
+    throw new LhrError('NOT_A_REPO', `cannot access ${root}: ${String(code)}`);
   }
 
   let toplevel: string;
   try {
     toplevel = (await runGit(gitPath, root, ['rev-parse', '--show-toplevel'])).trim();
   } catch (err) {
-    if (err instanceof LhrError && err.code === 'GIT_FAILED' && (await gitRuns(gitPath, root))) {
-      throw new LhrError('NOT_A_REPO', `${root} is not inside a git repository`);
+    if (err instanceof GitExitError) {
+      throw new LhrError('NOT_A_REPO', `${root} is not inside a git repository: ${err.stderr}`);
     }
     throw err;
   }
@@ -84,14 +84,4 @@ export async function openTree(host: Host): Promise<LhrTree> {
 
   await checkFormat(root);
   return new Tree(root, GitBatch.start(gitPath, root), now, random);
-}
-
-/** True when the git binary itself launches (distinguishes "not a repo" from "no git"). */
-async function gitRuns(gitPath: string, cwd: string): Promise<boolean> {
-  try {
-    await runGit(gitPath, cwd, ['--version']);
-    return true;
-  } catch {
-    return false;
-  }
 }

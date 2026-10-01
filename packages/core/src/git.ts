@@ -1,6 +1,18 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { LhrError } from './errors.js';
 
+/** git ran and exited non-zero. */
+export class GitExitError extends LhrError {
+  constructor(
+    message: string,
+    readonly exitCode: number,
+    readonly stderr: string,
+  ) {
+    super('GIT_FAILED', message);
+    this.name = 'GitExitError';
+  }
+}
+
 /** Runs git without a shell and returns stdout. Failures throw GIT_FAILED. */
 export function runGit(gitPath: string, cwd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -11,7 +23,13 @@ export function runGit(gitPath: string, cwd: string, args: string[]): Promise<st
       (err, stdout, stderr) => {
         if (err) {
           const detail = (stderr ?? '').trim() || err.message;
-          reject(new LhrError('GIT_FAILED', `git ${args.join(' ')} failed: ${detail}`));
+          const message = `git ${args.join(' ')} failed: ${detail}`;
+          const exitCode = (err as { code?: unknown }).code;
+          if (typeof exitCode === 'number') {
+            reject(new GitExitError(message, exitCode, (stderr ?? '').trim()));
+          } else {
+            reject(new LhrError('GIT_FAILED', message));
+          }
           return;
         }
         resolve(stdout);
@@ -44,16 +62,17 @@ export class GitBatch {
   private readonly exited: Promise<void>;
 
   private constructor(gitPath: string, cwd: string) {
-    this.child = spawn(gitPath, ['cat-file', '--batch'], { cwd, stdio: 'pipe' });
+    this.child = spawn(gitPath, ['cat-file', '--batch'], {
+      cwd,
+      stdio: 'pipe',
+    });
     this.pid = this.child.pid;
     this.exited = new Promise<void>((resolve) => {
       this.child.once('close', () => resolve());
       this.child.once('error', () => resolve());
     });
     this.child.on('error', (err) => this.fail(`git cat-file failed to run: ${err.message}`));
-    this.child.on('close', (code, signal) =>
-      this.fail(`git cat-file exited (${signal ?? code})`),
-    );
+    this.child.on('close', (code, signal) => this.fail(`git cat-file exited (${signal ?? code})`));
     this.child.stdin.on('error', () => {
       // EPIPE after exit is reported via 'close'.
     });

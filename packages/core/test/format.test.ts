@@ -35,6 +35,22 @@ describe('checkFormat', () => {
     }
   });
 
+  it('FORMAT_MISSING when .lhr/format is a directory', async () => {
+    const dir = await createTempDir();
+    try {
+      await mkdir(path.join(dir.root, '.lhr', 'format'), { recursive: true });
+      await assert.rejects(checkFormat(dir.root), (err: unknown) => {
+        return (
+          err instanceof LhrError &&
+          err.code === 'FORMAT_MISSING' &&
+          err.message.includes('not a file')
+        );
+      });
+    } finally {
+      await dir.cleanup();
+    }
+  });
+
   it('FORMAT_MISSING with .lhr but no format file', async () => {
     const dir = await createTempDir();
     try {
@@ -50,7 +66,9 @@ describe('checkFormat', () => {
       const repo = await createTempRepo({ format: content });
       try {
         await assert.rejects(checkFormat(repo.root), (err: unknown) => {
-          return err instanceof LhrError && err.code === 'FORMAT_VERSION' && err.message.includes('2');
+          return (
+            err instanceof LhrError && err.code === 'FORMAT_VERSION' && err.message.includes('2')
+          );
         });
       } finally {
         await repo.cleanup();

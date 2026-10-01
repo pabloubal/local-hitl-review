@@ -16,7 +16,10 @@ export async function checkFormat(root: string): Promise<void> {
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       throw new LhrError('FORMAT_MISSING', `No .lhr/format file found in ${root}`);
     }
-    throw err;
+    if (code === 'EISDIR') {
+      throw new LhrError('FORMAT_MISSING', '`.lhr/format` is not a file');
+    }
+    throw new LhrError('FORMAT_MISSING', `cannot read .lhr/format: ${String(code)}`);
   }
   if (text === '2' || text === '2\n' || text === '2\r\n') return;
   const shown = text.length > MAX_SHOWN ? `${text.slice(0, MAX_SHOWN)}...` : text;
