@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { chmod, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { openTree, type Diagnostic } from '../src/index.js';
@@ -618,6 +619,60 @@ describe('check() and load() agree', () => {
     assert.deepEqual(r.check, []);
     assert.deepEqual(r.load, []);
     assert.deepEqual(r.threads, [[T1, M1, M2]]);
+  });
+
+  it('keep a valid draft whose submitted copy is broken (failed publish)', async () => {
+    const r = await both(async (repo) => {
+      await rm(path.join(repo.root, THREAD_DIR, `${M2}.md`));
+      await repo.write(`${THREAD_DIR}/${M1}.md`, '---\nno colon\n---\n');
+      await repo.write(`.lhr/drafts/threads/${T1}/${M1}.md`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(r.check, [['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${M1}.md`]]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, [[T1, M1]]);
+  });
+
+  it('keep a valid draft whose submitted copy is broken, next to valid messages', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await repo.write(`${THREAD_DIR}/${NAME}`, '---\nno colon\n---\n');
+      await repo.write(`.lhr/drafts/threads/${T1}/${NAME}`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(r.check, [
+      ['DUPLICATE_CLIENT_ID', `.lhr/drafts/threads/${T1}/${NAME}`],
+      ['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`],
+    ]);
+    assert.deepEqual(r.load, [['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`]]);
+    assert.deepEqual(r.threads, [[T1, M1, M2, NAME.slice(0, -3)]]);
+  });
+
+  it('report a FIFO where a message or thread.md is expected', async (t) => {
+    if (process.platform === 'win32') return t.skip('no FIFOs on Windows');
+    const r = await both(async (repo) => {
+      await repo.write(`.lhr/threads/${T2}/${M1}.md`, msg());
+      execFileSync('mkfifo', [
+        path.join(repo.root, THREAD_DIR, NAME),
+        path.join(repo.root, `.lhr/threads/${T2}/thread.md`),
+      ]);
+    });
+    assert.deepEqual(r.check, [
+      ['UNREADABLE_FILE', `${THREAD_DIR}/${NAME}`],
+      ['UNREADABLE_FILE', `.lhr/threads/${T2}/thread.md`],
+    ]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, [[T1, M1, M2]]);
+  });
+
+  it('ignore a symlinked leftover draft thread.md next to a submitted thread', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`.lhr/drafts/threads/${T1}/${NAME}`, msg());
+      await symlink(
+        path.join(repo.root, THREAD_MD),
+        path.join(repo.root, `.lhr/drafts/threads/${T1}/thread.md`),
+      );
+    });
+    assert.deepEqual(r.check, []);
+    assert.deepEqual(r.load, []);
   });
 
   it('ignore a leftover draft thread.md next to a submitted thread', async () => {
