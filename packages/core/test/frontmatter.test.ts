@@ -228,7 +228,7 @@ describe('serializeFrontmatter', () => {
 
   it('rejects values YAML parsers would read differently', () => {
     const ls = String.fromCharCode(0x2028);
-    const values = ['foo:', 'a\t# c', '\tx', 'x\t', 'a\x01b', '"a\x85b"', `"a${ls}b"`, '"a\x7f"'];
+    const values = ['foo:', 'a:\tb', 'a\t# c', '\tx', 'x\t', 'a\x01b', '"a\x85b"', `"a${ls}b"`, '"a\x7f"'];
     for (const v of values) {
       const r = parse(`---\nk: ${v}\n---\n`);
       assert.equal(r.diagnostics.length, 1, JSON.stringify(v));

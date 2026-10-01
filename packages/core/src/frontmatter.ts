@@ -84,8 +84,11 @@ function parseValue(raw: string): { value: FrontmatterValue } | { error: string 
   if (raw.endsWith(':')) {
     return { error: 'value ending with ":" must be double-quoted' };
   }
-  if (raw.includes(': ') || raw.includes(' #') || raw.includes('\t#')) {
-    return { error: 'value containing ": ", " #" or a tab followed by "#" must be double-quoted' };
+  if (raw.includes(': ') || raw.includes(':\t') || raw.includes(' #') || raw.includes('\t#')) {
+    return {
+      error:
+        'value containing ": ", a colon followed by a tab, " #" or a tab followed by "#" must be double-quoted',
+    };
   }
   return { value: raw };
 }

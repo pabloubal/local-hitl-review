@@ -31,7 +31,7 @@ Every file starts with frontmatter between two `---` lines, followed by a markdo
 
 - One `key: value` per line. Blank lines are ignored. No comments, nesting, lists or multi-line values.
 - **Keys** match `^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$`. Dots group related keys (`anchor.path`).
-- **Values** are an integer (`^-?[0-9]+$`), `true`, `false`, or a string. A string must be double-quoted, with `\"` and `\\` escapes, when it is empty, starts or ends with a space or tab, ends with `:`, contains `: `, ` #` or a tab followed by `#`, starts with one of ``-?:,[]{}#&*!|>'"%@` ``, or would otherwise read as an integer or boolean.
+- **Values** are an integer (`^-?[0-9]+$`), `true`, `false`, or a string. A string must be double-quoted, with `\"` and `\\` escapes, when it is empty, starts or ends with a space or tab, ends with `:`, contains `: `, `:` followed by a tab, ` #` or a tab followed by `#`, starts with one of ``-?:,[]{}#&*!|>'"%@` ``, or would otherwise read as an integer or boolean.
 - Values can't contain control characters other than tab, or the line separators U+0085, U+2028 and U+2029.
 - A list, when needed, is a comma-separated string.
 - **Unknown keys** are kept by readers and ignored; `lhr check` warns about them.
