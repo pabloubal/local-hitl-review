@@ -120,7 +120,7 @@ export async function createDraftThread(
     const messageId = await writeMessage(tree, dir, 'human', openingText);
     return { threadId, messageId };
   }
-  throw new LhrError('GIT_FAILED', 'could not find an unused thread ID');
+  throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
 }
 
 async function findThread(tree: Tree, threadId: string): Promise<ThreadView | undefined> {
@@ -444,8 +444,7 @@ export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<
     return await runRound(tree, round);
   } catch (err) {
     if (err instanceof LhrError) throw err;
-    // No existing error code covers file system failures; INVALID_INPUT is a placeholder.
-    throw new LhrError('INVALID_INPUT', `submitRound failed: ${(err as Error).message}`);
+    throw new LhrError('IO_FAILED', `submitRound failed: ${(err as Error).message}`);
   }
 }
 

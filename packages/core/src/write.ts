@@ -171,8 +171,7 @@ export async function guardFs<T>(fn: () => Promise<T>): Promise<T> {
     return await fn();
   } catch (err) {
     if (err instanceof LhrError) throw err;
-    // No existing error code covers file system failures; INVALID_INPUT is a placeholder.
-    throw new LhrError('INVALID_INPUT', `file system error: ${(err as Error).message}`);
+    throw new LhrError('IO_FAILED', `file system error: ${(err as Error).message}`);
   }
 }
 
@@ -245,7 +244,7 @@ export async function writeMessage(
     const name = tree.newMessageFileName(kind);
     if (await createAtomic(tree, path.join(dir, name), text)) return name.slice(0, -3);
   }
-  throw new LhrError('GIT_FAILED', `could not find an unused message file name in ${dir}`);
+  throw new LhrError('IO_FAILED', `could not find an unused message file name in ${dir}`);
 }
 
 export async function requireThread(tree: Tree, threadId: string): Promise<ThreadView> {
@@ -316,7 +315,7 @@ export async function createThread(
     const messageId = await writeMessage(tree, dir, input.author.kind, openingText);
     return { threadId, messageId, created: true };
   }
-  throw new LhrError('GIT_FAILED', 'could not find an unused thread ID');
+  throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
 }
 
 async function setStatus(

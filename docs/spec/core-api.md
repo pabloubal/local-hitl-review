@@ -21,7 +21,7 @@ interface Host {
 
 ## Errors
 
-- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
+- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`, `IO_FAILED`. `IO_FAILED` is thrown on an unexpected file-system failure while writing, including running out of retries for a unique file name. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
 - **Broken content never throws.** One bad file must not hide the rest of the tree. Reads skip what they can't parse and report it as a `Diagnostic`, the same type `check()` returns.
 
 ```ts
