@@ -141,19 +141,72 @@ async function discardTemp(tmp: string): Promise<void> {
   }
 }
 
+/** Internal test seam for file system calls. Not part of the public API. */
+export const seams = { link };
+
+/** fsyncs a directory so a new or renamed entry survives power loss; best-effort on platforms without it. */
+async function fsyncDir(dir: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(dir, 'r');
+    await handle.sync();
+  } catch (err) {
+    if (!['EISDIR', 'EPERM', 'EINVAL', 'ENOTSUP', 'EACCES'].includes(errCode(err) ?? '')) throw err;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function errCode(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException).code;
+}
+
+/** Runs a write path, turning any unexpected (non-LhrError) failure into an LhrError. */
+export async function guardFs<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof LhrError) throw err;
+    // No existing error code covers file system failures; INVALID_INPUT is a placeholder.
+    throw new LhrError('INVALID_INPUT', `file system error: ${(err as Error).message}`);
+  }
+}
+
 /**
  * Creates `file` atomically and exclusively: the content is written and fsynced to a
- * temp file, then hard-linked into place. `file` is therefore either absent or complete.
- * Returns false when it already exists. The directory of `file` must exist.
+ * temp file, then hard-linked into place, so `file` is either absent or complete. Returns
+ * false when it already exists. The directory of `file` must exist.
+ *
+ * On file systems without hard links (EPERM, ENOTSUP, ENOSYS, EXDEV) it falls back to an
+ * exclusive create plus write and fsync. Exclusivity is kept; atomicity is best-effort there.
  */
 export async function createAtomic(tree: Tree, file: string, content: string): Promise<boolean> {
   const tmp = await writeTemp(tree, content);
   try {
-    await link(tmp, file);
+    try {
+      await seams.link(tmp, file);
+    } catch (err) {
+      const code = errCode(err);
+      if (code === 'EEXIST') return false;
+      if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS' && code !== 'EXDEV') {
+        throw err;
+      }
+      let handle;
+      try {
+        handle = await open(file, 'wx');
+      } catch (openErr) {
+        if (errCode(openErr) === 'EEXIST') return false;
+        throw openErr;
+      }
+      try {
+        await handle.writeFile(content);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+    }
+    await fsyncDir(path.dirname(file));
     return true;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
-    throw err;
   } finally {
     await discardTemp(tmp);
   }
@@ -168,6 +221,7 @@ export async function replaceAtomic(tree: Tree, file: string, content: string): 
     await discardTemp(tmp);
     throw err;
   }
+  await fsyncDir(path.dirname(file));
 }
 
 /** Writes a new message file into `dir` and returns its message ID. */

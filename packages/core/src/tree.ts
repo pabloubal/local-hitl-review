@@ -22,6 +22,7 @@ import {
   type SubmitRoundResult,
 } from './drafts.js';
 import {
+  guardFs,
   createThread,
   reopen,
   reply,
@@ -125,19 +126,19 @@ export class Tree implements LhrTree {
   }
 
   reply(threadId: string, input: ReplyInput): Promise<ReplyResult> {
-    return reply(this, threadId, input);
+    return guardFs(() => reply(this, threadId, input));
   }
 
   createThread(input: CreateThreadInput): Promise<CreateThreadResult> {
-    return createThread(this, input);
+    return guardFs(() => createThread(this, input));
   }
 
   resolve(threadId: string, author: Author): Promise<StatusChangeResult> {
-    return resolve(this, threadId, author);
+    return guardFs(() => resolve(this, threadId, author));
   }
 
   reopen(threadId: string, author: Author): Promise<StatusChangeResult> {
-    return reopen(this, threadId, author);
+    return guardFs(() => reopen(this, threadId, author));
   }
 
   anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>> {
@@ -145,23 +146,23 @@ export class Tree implements LhrTree {
   }
 
   createDraftThread(input: CreateDraftThreadInput): Promise<CreateDraftThreadResult> {
-    return createDraftThread(this, input);
+    return guardFs(() => createDraftThread(this, input));
   }
 
   addDraftMessage(threadId: string, input: AddDraftMessageInput): Promise<{ messageId: string }> {
-    return addDraftMessage(this, threadId, input);
+    return guardFs(() => addDraftMessage(this, threadId, input));
   }
 
   updateDraft(messageId: string, patch: DraftPatch): Promise<void> {
-    return updateDraft(this, messageId, patch);
+    return guardFs(() => updateDraft(this, messageId, patch));
   }
 
   discardDraft(id: string): Promise<void> {
-    return discardDraft(this, id);
+    return guardFs(() => discardDraft(this, id));
   }
 
   submitRound(input: SubmitRoundInput): Promise<SubmitRoundResult> {
-    return submitRound(this, input);
+    return guardFs(() => submitRound(this, input));
   }
 
   dispose(): Promise<void> {

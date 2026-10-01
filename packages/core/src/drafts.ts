@@ -311,14 +311,20 @@ async function rmdirIfEmpty(dir: string): Promise<void> {
 
 /** Removes temp files that a crashed write left behind (older than an hour). */
 async function cleanStaleTemps(tree: Tree): Promise<void> {
-  const dir = tempDir(tree);
-  const cutoff = Date.now() - 60 * 60 * 1000;
-  for (const name of await readdir(dir)) {
-    try {
-      if ((await stat(path.join(dir, name))).mtimeMs < cutoff) await rm(path.join(dir, name));
-    } catch (err) {
-      if (errnoCode(err) !== 'ENOENT') throw err;
+  try {
+    const dir = tempDir(tree);
+    const cutoff = Date.now() - 60 * 60 * 1000;
+    for (const name of await readdir(dir)) {
+      try {
+        if ((await stat(path.join(dir, name))).mtimeMs < cutoff) {
+          await rm(path.join(dir, name), { recursive: true, force: true });
+        }
+      } catch {
+        // best-effort: a failed cleanup must never fail a submit
+      }
     }
+  } catch {
+    // best-effort
   }
 }
 
@@ -377,11 +383,10 @@ async function publishThread(
   const targetMeta = path.join(to, THREAD_FILE);
   if ((await readOptional(targetMeta)) === undefined) {
     const draftMeta = await readOptional(path.join(from, THREAD_FILE));
-    if (draftMeta === undefined) {
-      throw invalid(`draft thread ${threadId} has no thread.md and no submitted thread`);
+    if (draftMeta !== undefined) {
+      await mkdir(to, { recursive: true });
+      await createAtomic(tree, targetMeta, draftMeta);
     }
-    await mkdir(to, { recursive: true });
-    await createAtomic(tree, targetMeta, draftMeta);
   }
   // Never delete a draft before the thread it joins is verifiably complete.
   const meta = await readOptional(targetMeta);
@@ -422,7 +427,8 @@ async function publishThread(
  * can depend on it before the round file exists. Drafts that are invalid (a mismatched
  * author kind, an empty body without status or severity, a broken thread) are not
  * listed, stay in `drafts/` and come back as `skippedDraftIds` (empty when resuming).
- * Unexpected file system errors surface as `LhrError`.
+ * Unexpected file system errors surface as `LhrError`. Crash-safe against process death;
+ * power loss is best-effort (files and directories are fsynced where the platform allows).
  */
 export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<SubmitRoundResult> {
   validateAuthor(input.author);
@@ -446,13 +452,27 @@ async function runRound(tree: Tree, roundContent: string): Promise<SubmitRoundRe
   const markerFile = path.join(draftsDir(tree), MARKER);
 
   let marker = await readMarker(markerFile);
-  const resumed = marker !== undefined;
+  let resumed = marker !== undefined;
   let skippedDraftIds: string[] = [];
   const scan = await scanDrafts(tree);
   if (marker === undefined) {
-    marker = { round: tree.newId(), messages: scan.eligible };
-    skippedDraftIds = scan.skipped;
-    await replaceAtomic(tree, markerFile, `${JSON.stringify(marker)}\n`);
+    const fresh: Marker = { round: tree.newId(), messages: scan.eligible };
+    const text = `${JSON.stringify(fresh)}\n`;
+    if (await createAtomic(tree, markerFile, text)) {
+      marker = fresh;
+      skippedDraftIds = scan.skipped;
+    } else {
+      // Someone else (a concurrent submit) wrote a marker first: resume theirs if valid,
+      // replace it only if it is invalid.
+      marker = await readMarker(markerFile);
+      if (marker !== undefined) {
+        resumed = true;
+      } else {
+        await replaceAtomic(tree, markerFile, text);
+        marker = fresh;
+        skippedDraftIds = scan.skipped;
+      }
+    }
   }
   const roundId = marker.round;
 

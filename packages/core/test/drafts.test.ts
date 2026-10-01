@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { LhrError } from '../src/errors.js';
+import { seams } from '../src/write.js';
 import { openTree, type Author, type LhrTree } from '../src/index.js';
 import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
 
@@ -517,6 +518,90 @@ describe('crash safety', () => {
       await c.tree.resolve(tid, HUMAN);
       assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
       assert.equal(await c.read('.lhr/drafts/.gitignore'), '*\n');
+    });
+  });
+
+  it('keeps drafts and the marker when the target thread.md is truncated', async () => {
+    await withCtx(async (c) => {
+      const d = await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'a', author: HUMAN });
+      const roundId = '20261001T150000Z-iiiiii';
+      await writeFile(marker(c), JSON.stringify({ round: roundId, messages: [d.messageId] }));
+      await mkdir(`${c.repo.root}/.lhr/threads/${d.threadId}`, { recursive: true });
+      await writeFile(`${c.repo.root}/.lhr/threads/${d.threadId}/thread.md`, '---\nanchor.kind: li');
+      await assert.rejects(
+        c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN }),
+        (e) => e instanceof LhrError,
+      );
+      assert.deepEqual(await c.ls(`.lhr/drafts/threads/${d.threadId}`), [
+        `${d.messageId}.md`,
+        'thread.md',
+      ]);
+      assert.equal((await c.read('.lhr/drafts/.submitting')).includes(roundId), true);
+    });
+  });
+
+  it('two concurrent submits make one round and lose no drafts', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        ids.push((await c.tree.addDraftMessage(tid, { body: `m${i}`, author: HUMAN })).messageId);
+      }
+      const input = { verdict: 'comment', summary: '', author: HUMAN } as const;
+      const [a, b] = await Promise.all([c.tree.submitRound(input), c.tree.submitRound(input)]);
+      assert.equal(a.roundId, b.roundId);
+      assert.equal(a.resumed !== b.resumed, true);
+      assert.equal((await c.ls('.lhr/rounds')).length, 1);
+      const snap = await c.tree.load();
+      assert.deepEqual(snap.problems, []);
+      assert.equal(snap.thread(tid)?.messages.length, 5);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      assert.deepEqual(snap.thread(tid)?.messages.slice(1).map((m) => m.id), ids.slice().sort());
+    });
+  });
+});
+
+describe('filesystem fallbacks', () => {
+  function stubLink(code: string): () => void {
+    const original = seams.link;
+    seams.link = () => Promise.reject(Object.assign(new Error(code), { code }));
+    return () => {
+      seams.link = original;
+    };
+  }
+
+  it('falls back to exclusive create when hard links are unsupported', async () => {
+    await withCtx(async (c) => {
+      const restore = stubLink('EPERM');
+      try {
+        const t = await c.tree.createThread({ anchor: FILE_ANCHOR, body: 'q', author: AGENT });
+        const r = await c.tree.reply(t.threadId, { body: 'again', author: AGENT });
+        const dir = `.lhr/threads/${t.threadId}`;
+        assert.deepEqual(await c.ls(dir), [`${t.messageId}.md`, `${r.messageId}.md`, 'thread.md'].sort());
+        assert.equal((await c.read(`${dir}/${r.messageId}.md`)).endsWith('again\n'), true);
+        assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  it('wraps unexpected fs errors as LhrError', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const restore = stubLink('EIO');
+      try {
+        await assert.rejects(
+          c.tree.reply(tid, { body: 'x', author: AGENT }),
+          (e) => e instanceof LhrError,
+        );
+        await assert.rejects(
+          c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN }),
+          (e) => e instanceof LhrError,
+        );
+      } finally {
+        restore();
+      }
     });
   });
 });
