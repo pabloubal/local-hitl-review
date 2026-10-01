@@ -1,3 +1,10 @@
+# [0.21.0](https://github.com/pabloubal/local-hitl-review/compare/v0.20.0...v0.21.0) (2026-10-01)
+
+
+### Features
+
+* **core:** check() and JSON Schemas ([#72](https://github.com/pabloubal/local-hitl-review/issues/72)) ([#76](https://github.com/pabloubal/local-hitl-review/issues/76)) ([bf32de2](https://github.com/pabloubal/local-hitl-review/commit/bf32de2e013660b9bfc6984a9afcdf0c84291a1b))
+
 # [0.20.0](https://github.com/pabloubal/local-hitl-review/compare/v0.19.0...v0.20.0) (2026-10-01)
 
 
