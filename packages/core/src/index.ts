@@ -18,5 +18,6 @@ export type {
   TreeSnapshot,
   Verdict,
 } from './model.js';
+export type { CheckResult } from './check.js';
 export { openTree } from './tree.js';
 export type { Host, LhrTree } from './tree.js';

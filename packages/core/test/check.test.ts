@@ -1,0 +1,388 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { rm, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { openTree, type Diagnostic } from '../src/index.js';
+import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
+
+const T1 = '20260101T100000Z-aaaaaa';
+const M1 = '20260101T100100Z-human-cccccc';
+const M2 = '20260101T100200Z-agent-dddddd';
+const R1 = '20260101T120000Z-ffffff';
+const P1 = '20260101T130000Z-gggggg';
+const SHA = 'a'.repeat(40);
+
+const THREAD_DIR = `.lhr/threads/${T1}`;
+const THREAD_MD = `${THREAD_DIR}/thread.md`;
+
+function lineThread(
+  opts: {
+    start?: number;
+    end?: number;
+    before?: number;
+    after?: number;
+    snap?: string[];
+    drop?: string;
+  } = {},
+): string {
+  const { start = 2, end = 3, before = 1, after = 0, snap = ['one', 'two', 'three'], drop } = opts;
+  const lines = [
+    'anchor.kind: line',
+    'anchor.path: src/a.ts',
+    'anchor.side: new',
+    `anchor.commit: ${SHA}`,
+    'anchor.branch: main',
+    `anchor.blob: ${SHA}`,
+    `anchor.startLine: ${start}`,
+    `anchor.endLine: ${end}`,
+    `anchor.contextBefore: ${before}`,
+    `anchor.contextAfter: ${after}`,
+  ].filter((l) => drop === undefined || !l.startsWith(`${drop}:`));
+  return `---\n${lines.join('\n')}\n---\n\`\`\`ts\n${snap.join('\n')}\n\`\`\`\n`;
+}
+
+const FILE_THREAD = `---\nanchor.kind: file\nanchor.path: README.md\nanchor.side: old\nanchor.commit: ${SHA}\n---\n`;
+
+function msg(extra = '', kind = 'human', body = 'hello\n', name = 'Pablo'): string {
+  return `---\nauthor.kind: ${kind}\nauthor.name: ${name}\n${extra}---\n${body}`;
+}
+
+const ROUND = `---\nverdict: comment\nauthor.kind: human\nauthor.name: Pablo\n---\nsummary\n`;
+
+function push(
+  json: unknown = { threads: { [T1]: {} }, messages: { [M1]: {} } },
+  extra = '',
+): string {
+  return (
+    `---\nround: ${R1}\ngithub.repo: o/r\ngithub.pullNumber: 5\ngithub.reviewId: 9\n` +
+    `github.reviewNodeId: PRR_x\ngithub.commitId: ${SHA}\ngithub.state: COMMENTED\n` +
+    `github.url: "https://github.com/o/r/pull/5"\ngithub.verdictDowngraded: false\n${extra}---\n` +
+    `\`\`\`json\n${JSON.stringify(json, null, 2)}\n\`\`\`\n`
+  );
+}
+
+async function cleanTree(repo: TempRepo): Promise<void> {
+  await repo.write(THREAD_MD, lineThread());
+  await repo.write(`${THREAD_DIR}/${M1}.md`, msg(`round: ${R1}\n`));
+  await repo.write(
+    `${THREAD_DIR}/${M2}.md`,
+    msg('author.session: s1\n', 'agent', 'ok\n', 'claude-code'),
+  );
+  await repo.write(`.lhr/rounds/${R1}.md`, ROUND);
+  await repo.write(`.lhr/pushes/${P1}.md`, push());
+  await repo.write('.lhr/drafts/.gitignore', '*\n');
+  await repo.write('.lhr/drafts/.submitting', '');
+}
+
+async function run(
+  setup: (repo: TempRepo) => Promise<void>,
+  afterOpen?: (repo: TempRepo) => Promise<void>,
+): Promise<Diagnostic[]> {
+  const repo = await createTempRepo();
+  try {
+    await cleanTree(repo);
+    await setup(repo);
+    const tree = await openTree({ root: repo.root });
+    try {
+      await afterOpen?.(repo);
+      return (await tree.check()).diagnostics;
+    } finally {
+      await tree.dispose();
+    }
+  } finally {
+    await repo.cleanup();
+  }
+}
+
+function expectOnly(
+  diags: Diagnostic[],
+  code: string,
+  p: string,
+  severity: 'error' | 'warning' = 'error',
+): void {
+  assert.deepEqual(
+    diags.map((d) => [d.code, d.path, d.severity]),
+    [[code, p, severity]],
+    JSON.stringify(diags, null, 2),
+  );
+}
+
+describe('check()', () => {
+  it('yields no diagnostics for a clean tree', async () => {
+    assert.deepEqual(await run(async () => {}), []);
+  });
+
+  it('accepts file threads and valid draft threads', async () => {
+    const diags = await run(async (r) => {
+      const t2 = '20260102T100000Z-bbbbbb';
+      await r.write(`.lhr/threads/${t2}/thread.md`, FILE_THREAD);
+      await r.write(`.lhr/threads/${t2}/${M1}.md`, msg());
+      const t3 = '20260103T100000Z-cccccc';
+      await r.write(`.lhr/drafts/threads/${t3}/thread.md`, FILE_THREAD);
+      await r.write(`.lhr/drafts/threads/${t3}/20260103T100100Z-human-eeeeee.md`, msg());
+    });
+    assert.deepEqual(diags, []);
+  });
+
+  it('errors when .lhr/format goes missing after the tree is opened', async () => {
+    const diags = await run(
+      async () => {},
+      async (r) => {
+        await rm(path.join(r.root, '.lhr/format'));
+      },
+    );
+    expectOnly(diags, 'FORMAT_MISSING', '.lhr/format');
+  });
+
+  it('errors when .lhr/format changes to a version other than 2', async () => {
+    const diags = await run(
+      async () => {},
+      async (r) => {
+        await writeFile(path.join(r.root, '.lhr/format'), '3\n');
+      },
+    );
+    expectOnly(diags, 'FORMAT_VERSION', '.lhr/format');
+  });
+
+  it('errors on frontmatter syntax errors', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, '---\nauthor.kind human\n---\nx\n');
+    });
+    expectOnly(diags, 'FRONTMATTER_SYNTAX', `${THREAD_DIR}/${M1}.md`);
+  });
+
+  it('errors on a missing required key', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, '---\nauthor.kind: human\n---\nhi\n');
+    });
+    expectOnly(diags, 'MISSING_KEY', `${THREAD_DIR}/${M1}.md`);
+  });
+
+  it('errors on a wrong type', async () => {
+    const diags = await run(async (r) => {
+      await r.write(
+        THREAD_MD,
+        lineThread().replace('anchor.startLine: 2', 'anchor.startLine: "2"'),
+      );
+    });
+    expectOnly(diags, 'INVALID_VALUE', THREAD_MD);
+  });
+
+  it('errors on a wrong enum value', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg('severity: urgent\n'));
+    });
+    expectOnly(diags, 'INVALID_VALUE', `${THREAD_DIR}/${M1}.md`);
+  });
+
+  it('errors on a non-repo-relative anchor.path', async () => {
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread().replace('src/a.ts', '../a.ts'));
+    });
+    expectOnly(diags, 'INVALID_VALUE', THREAD_MD);
+  });
+
+  it('errors on a round and push record with schema violations', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/rounds/${R1}.md`, ROUND.replace('comment', 'maybe'));
+      await r.write(
+        `.lhr/pushes/${P1}.md`,
+        push().replace('github.state: COMMENTED', 'github.state: DONE'),
+      );
+    });
+    assert.deepEqual(diags.map((d) => [d.code, d.path]).sort(), [
+      ['INVALID_VALUE', `.lhr/pushes/${P1}.md`],
+      ['INVALID_VALUE', `.lhr/rounds/${R1}.md`],
+    ]);
+  });
+
+  it('errors on an invalid thread directory name', async () => {
+    const diags = await run(async (r) => {
+      await r.write('.lhr/threads/not-an-id/thread.md', FILE_THREAD);
+      await r.write(`.lhr/threads/not-an-id/${M1}.md`, msg());
+    });
+    assert.ok(
+      diags.some((d) => d.code === 'INVALID_FILE_NAME' && d.path === '.lhr/threads/not-an-id'),
+    );
+  });
+
+  it('errors on an invalid message file name', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/bogus.md`, msg());
+    });
+    expectOnly(diags, 'INVALID_FILE_NAME', `${THREAD_DIR}/bogus.md`);
+  });
+
+  it('errors on an invalid round and push file name', async () => {
+    const diags = await run(async (r) => {
+      await r.write('.lhr/rounds/zzz.md', ROUND);
+      await r.write('.lhr/pushes/zzz.md', push());
+    });
+    assert.deepEqual(diags.map((d) => [d.code, d.path]).sort(), [
+      ['INVALID_FILE_NAME', '.lhr/pushes/zzz.md'],
+      ['INVALID_FILE_NAME', '.lhr/rounds/zzz.md'],
+    ]);
+  });
+
+  it('errors when author.kind does not match the file name', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg('', 'agent').replace('Pablo', 'Pablo'));
+    });
+    assert.ok(
+      diags.some(
+        (d) =>
+          d.code === 'AUTHOR_KIND_MISMATCH' &&
+          d.path === `${THREAD_DIR}/${M1}.md` &&
+          d.severity === 'error',
+      ),
+    );
+  });
+
+  it('errors on a thread directory without thread.md', async () => {
+    const diags = await run(async (r) => {
+      await rm(path.join(r.root, THREAD_MD));
+    });
+    expectOnly(diags, 'MISSING_THREAD_MD', THREAD_DIR);
+  });
+
+  it('errors on a submitted thread with no messages', async () => {
+    const t2 = '20260102T100000Z-bbbbbb';
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/threads/${t2}/thread.md`, FILE_THREAD);
+    });
+    expectOnly(diags, 'EMPTY_THREAD', `.lhr/threads/${t2}`);
+  });
+
+  it('errors on an empty message body without status or severity', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg(`round: ${R1}\n`, 'human', ''));
+    });
+    expectOnly(diags, 'EMPTY_BODY', `${THREAD_DIR}/${M1}.md`);
+  });
+
+  it('errors on a snapshot line count mismatch', async () => {
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread({ snap: ['one', 'two'] }));
+    });
+    expectOnly(diags, 'SNAPSHOT_LINE_COUNT', THREAD_MD);
+  });
+
+  it('errors on a line thread without a snapshot fence', async () => {
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread().split('---\n```')[0] + '---\nno fence\n');
+    });
+    expectOnly(diags, 'INVALID_VALUE', THREAD_MD);
+  });
+
+  it('errors on line-only keys missing from a line thread', async () => {
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread({ drop: 'anchor.blob' }));
+    });
+    expectOnly(diags, 'MISSING_LINE_ANCHOR_KEY', THREAD_MD);
+  });
+
+  it('errors when endLine is before startLine', async () => {
+    const diags = await run(async (r) => {
+      await r.write(THREAD_MD, lineThread({ start: 3, end: 2, before: 0, after: 0, snap: ['x'] }));
+    });
+    expectOnly(diags, 'END_LINE_BEFORE_START', THREAD_MD);
+  });
+
+  it('errors on a message round that names a missing round', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg('round: 20260101T999999Z-zzzzzz\n'));
+    });
+    expectOnly(diags, 'UNKNOWN_ROUND', `${THREAD_DIR}/${M1}.md`);
+  });
+
+  it('errors on a duplicate clientId within a thread', async () => {
+    const m3 = '20260101T100300Z-human-eeeeee';
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await r.write(`${THREAD_DIR}/${m3}.md`, msg('clientId: abc\n'));
+    });
+    expectOnly(diags, 'DUPLICATE_CLIENT_ID', `${THREAD_DIR}/${m3}.md`);
+  });
+
+  it('allows the same clientId in different threads', async () => {
+    const t2 = '20260102T100000Z-bbbbbb';
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await r.write(`.lhr/threads/${t2}/thread.md`, FILE_THREAD);
+      await r.write(`.lhr/threads/${t2}/${M1}.md`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(diags, []);
+  });
+
+  it('errors on a push record naming an unknown thread', async () => {
+    const diags = await run(async (r) => {
+      await r.write(
+        `.lhr/pushes/${P1}.md`,
+        push({ threads: { '20260909T000000Z-zzzzzz': {} }, messages: {} }),
+      );
+    });
+    expectOnly(diags, 'PUSH_UNKNOWN_THREAD', `.lhr/pushes/${P1}.md`);
+  });
+
+  it('errors on a push record naming an unknown message', async () => {
+    const diags = await run(async (r) => {
+      await r.write(
+        `.lhr/pushes/${P1}.md`,
+        push({
+          threads: {},
+          messages: { '20260909T000000Z-human-zzzzzz': {} },
+        }),
+      );
+    });
+    expectOnly(diags, 'PUSH_UNKNOWN_MESSAGE', `.lhr/pushes/${P1}.md`);
+  });
+
+  it('errors on a push record body without valid json', async () => {
+    const diags = await run(async (r) => {
+      await r.write(
+        `.lhr/pushes/${P1}.md`,
+        push().split('---\n```')[0] + '---\n```json\n{oops\n```\n',
+      );
+    });
+    expectOnly(diags, 'INVALID_PUSH_BODY', `.lhr/pushes/${P1}.md`);
+  });
+
+  it('warns on an unknown key', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M1}.md`, msg(`round: ${R1}\nmood: happy\n`));
+    });
+    expectOnly(diags, 'UNKNOWN_KEY', `${THREAD_DIR}/${M1}.md`, 'warning');
+  });
+
+  it('warns on an agent message without author.session', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/${M2}.md`, msg('', 'agent', 'ok\n', 'claude-code'));
+    });
+    expectOnly(diags, 'MISSING_AUTHOR_SESSION', `${THREAD_DIR}/${M2}.md`, 'warning');
+  });
+
+  it('validates drafts too', async () => {
+    const t3 = '20260103T100000Z-cccccc';
+    const m = '20260103T100100Z-human-eeeeee';
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/drafts/threads/${t3}/thread.md`, FILE_THREAD);
+      await r.write(`.lhr/drafts/threads/${t3}/${m}.md`, msg('severity: urgent\n'));
+    });
+    expectOnly(diags, 'INVALID_VALUE', `.lhr/drafts/threads/${t3}/${m}.md`);
+  });
+
+  it('does not throw on garbage files', async () => {
+    const diags = await run(async (r) => {
+      await r.write(`${THREAD_DIR}/20260101T100300Z-human-eeeeee.md`, '');
+      await r.write(`${THREAD_DIR}/20260101T100400Z-human-ffffff.md`, '\u0000\u0001ÿþ binary');
+      await r.write(`${THREAD_DIR}/20260101T100500Z-agent-gggggg.md`, '---\nno close');
+      await r.write(`.lhr/rounds/20260101T130000Z-hhhhhh.md`, '');
+      await r.write(`.lhr/pushes/20260101T130000Z-iiiiii.md`, '\u0000\u0000');
+      await r.write('.lhr/threads/20260101T100000Z-jjjjjj/thread.md', '');
+    });
+    assert.ok(diags.length > 0);
+    for (const d of diags) {
+      assert.ok(d.code && d.path && !d.path.includes('\\'));
+    }
+  });
+});

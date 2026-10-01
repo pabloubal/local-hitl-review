@@ -84,7 +84,8 @@ export function compileSchema(raw: unknown): Schema {
   const rawProps = raw.properties ?? {};
   if (!isRecord(rawProps)) throw new Error('properties must be an object');
   const properties: Record<string, PropertySchema> = {};
-  for (const [key, value] of Object.entries(rawProps)) properties[key] = compileProperty(key, value);
+  for (const [key, value] of Object.entries(rawProps))
+    properties[key] = compileProperty(key, value);
   const additional = raw.additionalProperties ?? true;
   if (typeof additional !== 'boolean') throw new Error('additionalProperties must be a boolean');
   return {
@@ -100,7 +101,11 @@ export function validate(schema: Schema, data: FrontmatterData): SchemaIssue[] {
   const issues: SchemaIssue[] = [];
   for (const key of schema.required) {
     if (data[key] === undefined) {
-      issues.push({ key, kind: 'missing', message: `missing required key "${key}"` });
+      issues.push({
+        key,
+        kind: 'missing',
+        message: `missing required key "${key}"`,
+      });
     }
   }
   for (const [key, value] of Object.entries(data)) {
@@ -112,15 +117,27 @@ export function validate(schema: Schema, data: FrontmatterData): SchemaIssue[] {
       continue;
     }
     if (prop.type !== undefined && !matchesType(prop.type, value)) {
-      issues.push({ key, kind: 'type', message: `key "${key}" must be ${article(prop.type)}` });
+      issues.push({
+        key,
+        kind: 'type',
+        message: `key "${key}" must be ${article(prop.type)}`,
+      });
       continue;
     }
     if (prop.enum !== undefined && !prop.enum.includes(String(value))) {
-      issues.push({ key, kind: 'enum', message: `key "${key}" must be one of: ${prop.enum.join(', ')}` });
+      issues.push({
+        key,
+        kind: 'enum',
+        message: `key "${key}" must be one of: ${prop.enum.join(', ')}`,
+      });
       continue;
     }
     if (prop.pattern !== undefined && !(typeof value === 'string' && prop.pattern.test(value))) {
-      issues.push({ key, kind: 'pattern', message: `key "${key}" does not match ${prop.pattern.source}` });
+      issues.push({
+        key,
+        kind: 'pattern',
+        message: `key "${key}" does not match ${prop.pattern.source}`,
+      });
     }
   }
   return issues;

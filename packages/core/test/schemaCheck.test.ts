@@ -14,7 +14,11 @@ describe('compileSchema', () => {
 
   it('throws on an unsupported keyword in a property', () => {
     assert.throws(
-      () => compileSchema({ ...base, properties: { n: { type: 'integer', minimum: 1 } } }),
+      () =>
+        compileSchema({
+          ...base,
+          properties: { n: { type: 'integer', minimum: 1 } },
+        }),
       /minimum/,
     );
   });
@@ -95,6 +99,11 @@ describe('shipped schemas', () => {
     const s = loadSchemas();
     assert.deepEqual(Object.keys(s).sort(), ['message', 'push', 'round', 'thread']);
     assert.ok(s.thread.properties['anchor.path']);
-    assert.deepEqual(s.thread.required, ['anchor.kind', 'anchor.path', 'anchor.side', 'anchor.commit']);
+    assert.deepEqual(s.thread.required, [
+      'anchor.kind',
+      'anchor.path',
+      'anchor.side',
+      'anchor.commit',
+    ]);
   });
 });
