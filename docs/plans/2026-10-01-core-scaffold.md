@@ -5,10 +5,10 @@ Goal: create `packages/core` with the pieces every other core ticket (#68–#72)
 Spec: `docs/spec/core-api.md` § Opening a tree, § Errors; `docs/spec/file-format-v2.md` § Tree, § IDs and file names, § Frontmatter syntax; ADR 0004, ADR 0005.
 
 Acceptance criteria:
-- [ ] Tests written first, covering parser round-trip, every syntax-error case, ID generation with pinned `now`/`random`, and format detection.
-- [ ] `dispose()` ends the git child process (asserted in a test).
-- [ ] Root `npm test` runs the core tests.
-- [ ] Core never imports `vscode` (asserted in a test).
+- [x] Tests written first, covering parser round-trip, every syntax-error case, ID generation with pinned `now`/`random`, and format detection.
+- [x] `dispose()` ends the git child process (asserted in a test).
+- [x] Root `npm test` runs the core tests.
+- [x] Core never imports `vscode` (asserted in a test).
 
 Design:
 - **Package:** `packages/core`, name `@pablou/lhr-core`, `private: true`, CommonJS, tsc with the same compiler options as `packages/vscode` (Node16, ES2022, strict) but `types: ["node"]`. `rootDir: "."`, sources in `src/`, tests in `test/` (ADR 0004), output in `out/`. Scripts: `lint` = `tsc --noEmit`, `test:unit` = `tsc && node --test out/test/*.test.js`, `test` = `npm run test:unit`. The root `--workspaces` scripts pick it up; no root or CI change. devDependencies `typescript` and `@types/node` at the same ranges as `packages/vscode` (already in the lockfile, no new deps).
@@ -24,11 +24,14 @@ Tasks:
 | id | task | files | depends | agent | model | status |
 |----|------|-------|---------|-------|-------|--------|
 | T1 | Package scaffold, errors, temp-repo helper, no-vscode test | packages/core/{package.json,tsconfig.json,src/errors.ts,src/index.ts,test/helpers/tempRepo.ts,test/scaffold.test.ts}, package-lock.json | - | implementer | sonnet | done |
-| T2 | IDs and file names | packages/core/src/ids.ts, test/ids.test.ts | T1 | implementer | sonnet | todo |
-| T3 | Frontmatter parser and serializer | packages/core/src/frontmatter.ts, test/frontmatter.test.ts | T1 | implementer | sonnet | todo |
-| T4 | Format detection, GitBatch, openTree/LhrTree | packages/core/src/{format,git,tree}.ts, test/{format,tree}.test.ts | T2 | implementer | sonnet | todo |
-| T5 | index.ts exports, full verification | packages/core/src/index.ts | T2–T4 | tech lead | - | todo |
-| T6 | Review of combined diff | - | T5 | reviewer | opus | todo |
+| T2 | IDs and file names | packages/core/src/ids.ts, test/ids.test.ts | T1 | implementer | sonnet | done |
+| T3 | Frontmatter parser and serializer | packages/core/src/frontmatter.ts, test/frontmatter.test.ts | T1 | implementer | sonnet | done |
+| T4 | Format detection, GitBatch, openTree/LhrTree | packages/core/src/{format,git,tree}.ts, test/{format,tree}.test.ts | T2 | implementer | sonnet | done |
+| T5 | index.ts exports, full verification | packages/core/src/index.ts | T2–T4 | tech lead | - | done |
+| T6 | Review of combined diff | - | T5 | reviewer | opus | done (changes requested) |
+| T7 | Review fixes: frontmatter quoting (trailing `:`, `:` + tab, tabs, control chars) and spec wording | packages/core/src/frontmatter.ts, test, docs/spec/file-format-v2.md | T6 | implementer | sonnet | done |
+| T8 | Review fixes: GitExitError, fs errors as LhrError, dispose/kill tests | packages/core/src/{git,tree,format}.ts, tests | T6 | implementer | sonnet | done |
+| T9 | Re-review of T7–T8 | - | T7, T8 | reviewer | opus | done (approved) |
 
 Risks / open questions:
 - Diagnostic code names are not in the spec; `FRONTMATTER_SYNTAX` may need renaming when #72 (`check()`) settles the code list.
