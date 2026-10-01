@@ -1,3 +1,10 @@
+# [0.23.0](https://github.com/pabloubal/local-hitl-review/compare/v0.22.0...v0.23.0) (2026-10-01)
+
+
+### Features
+
+* **core:** drafts and review rounds ([#71](https://github.com/pabloubal/local-hitl-review/issues/71)) ([#79](https://github.com/pabloubal/local-hitl-review/issues/79)) ([f85cdd7](https://github.com/pabloubal/local-hitl-review/commit/f85cdd76fb2ab9c813fbf692c3adce2bf3805594)), closes [#72](https://github.com/pabloubal/local-hitl-review/issues/72)
+
 # [0.22.0](https://github.com/pabloubal/local-hitl-review/compare/v0.21.0...v0.22.0) (2026-10-01)
 
 
