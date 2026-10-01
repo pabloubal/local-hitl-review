@@ -139,7 +139,7 @@ These are calculated by the core and never written:
 - **Reviewer:** the author of the opening message.
 - **Status:** `open`, unless the latest message that sets `status` sets `resolved` and no message comes after it. A later message without `status` reopens the thread.
 - **Severity:** set by the latest message that sets `severity`, otherwise by `thread.md`, otherwise `medium`.
-- **Whose turn:** the `author.kind` of the last message.
+- **Whose turn:** the other party from the last message's author: last message by a human, the agent's turn; by an agent, the human's turn.
 - **Anchor state** (current, outdated or orphaned) and current lines: see [ADR 0006](../adr/0006-comment-anchoring.md).
 - **Inbox:** open, submitted threads where it's the agent's turn (see [`core-api.md`](core-api.md)). There is no read state.
 - **Nudge delivery:** kept locally, outside the shared tree.
