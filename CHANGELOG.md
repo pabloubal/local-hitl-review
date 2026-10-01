@@ -1,3 +1,10 @@
+# [0.19.0](https://github.com/pabloubal/local-hitl-review/compare/v0.18.1...v0.19.0) (2026-10-01)
+
+
+### Features
+
+* **core:** scaffold packages/core with openTree, errors, frontmatter and IDs ([#74](https://github.com/pabloubal/local-hitl-review/issues/74)) ([45e69f0](https://github.com/pabloubal/local-hitl-review/commit/45e69f0cb06decce31379ddf42ae89ebf7926a48)), closes [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67) [#67](https://github.com/pabloubal/local-hitl-review/issues/67)
+
 ## [0.18.1](https://github.com/pabloubal/local-hitl-review/compare/v0.18.0...v0.18.1) (2026-10-01)
 
 
