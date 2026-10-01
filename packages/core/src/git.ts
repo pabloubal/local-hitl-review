@@ -152,3 +152,39 @@ export class GitBatch {
     }
   }
 }
+
+/** Like runGit, but feeds `input` to git's stdin. */
+export function runGitWithInput(
+  gitPath: string,
+  cwd: string,
+  args: string[],
+  input: string | Buffer,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(gitPath, args, { cwd, stdio: 'pipe' });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on('data', (c: Buffer) => out.push(c));
+    child.stderr.on('data', (c: Buffer) => err.push(c));
+    child.stdin.on('error', () => {
+      // EPIPE after exit is reported via 'close'.
+    });
+    child.once('error', (e) =>
+      reject(new LhrError('GIT_FAILED', `git failed to run: ${e.message}`)),
+    );
+    child.once('close', (code) => {
+      const stderr = Buffer.concat(err).toString('utf8').trim();
+      if (code === 0) {
+        resolve(Buffer.concat(out).toString('utf8'));
+      } else {
+        const message = `git ${args.join(' ')} failed: ${stderr || `exit ${String(code)}`}`;
+        reject(
+          typeof code === 'number'
+            ? new GitExitError(message, code, stderr)
+            : new LhrError('GIT_FAILED', message),
+        );
+      }
+    });
+    child.stdin.end(input);
+  });
+}

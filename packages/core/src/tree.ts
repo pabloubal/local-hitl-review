@@ -4,9 +4,20 @@ import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
 import { GitBatch, GitExitError, runGit } from './git.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
-import type { TreeSnapshot } from './model.js';
+import type { Author, TreeSnapshot } from './model.js';
 import { readTree } from './read.js';
 import { buildSnapshot } from './snapshot.js';
+import {
+  createThread,
+  reopen,
+  reply,
+  resolve,
+  type CreateThreadInput,
+  type CreateThreadResult,
+  type ReplyInput,
+  type ReplyResult,
+  type StatusChangeResult,
+} from './write.js';
 
 export interface Host {
   /** Repo root (the directory holding .lhr/). */
@@ -33,6 +44,16 @@ export interface LhrTree {
    * § Validation. Content problems become diagnostics; never throws for them.
    */
   check(): Promise<CheckResult>;
+  /** `{ kind: "human", name: <git user.name> }`. */
+  humanAuthor(): Promise<Author>;
+  /** Writes an agent (or other) reply immediately, with no round. */
+  reply(threadId: string, input: ReplyInput): Promise<ReplyResult>;
+  /** Starts a thread immediately; it is never part of a round. */
+  createThread(input: CreateThreadInput): Promise<CreateThreadResult>;
+  /** Writes an empty-bodied `status: resolved` message unless already resolved. */
+  resolve(threadId: string, author: Author): Promise<StatusChangeResult>;
+  /** Writes an empty-bodied `status: open` message unless already open. */
+  reopen(threadId: string, author: Author): Promise<StatusChangeResult>;
   /** Releases the long-lived git process. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -43,6 +64,7 @@ export class Tree implements LhrTree {
     readonly git: GitBatch,
     private readonly now: () => Date,
     private readonly random: () => string,
+    readonly gitPath: string = 'git',
   ) {}
 
   newId(): string {
@@ -59,6 +81,34 @@ export class Tree implements LhrTree {
 
   check(): Promise<CheckResult> {
     return checkTree(this.root);
+  }
+
+  async humanAuthor(): Promise<Author> {
+    let name: string;
+    try {
+      name = (await runGit(this.gitPath, this.root, ['config', 'user.name'])).trim();
+    } catch (err) {
+      if (err instanceof GitExitError) name = '';
+      else throw err;
+    }
+    if (name === '') throw new LhrError('GIT_FAILED', 'git user.name is not set');
+    return { kind: 'human', name };
+  }
+
+  reply(threadId: string, input: ReplyInput): Promise<ReplyResult> {
+    return reply(this, threadId, input);
+  }
+
+  createThread(input: CreateThreadInput): Promise<CreateThreadResult> {
+    return createThread(this, input);
+  }
+
+  resolve(threadId: string, author: Author): Promise<StatusChangeResult> {
+    return resolve(this, threadId, author);
+  }
+
+  reopen(threadId: string, author: Author): Promise<StatusChangeResult> {
+    return reopen(this, threadId, author);
   }
 
   dispose(): Promise<void> {
@@ -105,5 +155,5 @@ export async function openTree(host: Host): Promise<LhrTree> {
   }
 
   await checkFormat(root);
-  return new Tree(root, GitBatch.start(gitPath, root), now, random);
+  return new Tree(root, GitBatch.start(gitPath, root), now, random, gitPath);
 }
