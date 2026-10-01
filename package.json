@@ -13,7 +13,9 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "watch": "npm run watch -w local-hitl-review",
-    "lint": "npm run lint --workspaces --if-present",
+    "check:versions": "node scripts/check-versions.mjs",
+    "lint": "npm run check:versions && npm run lint --workspaces --if-present",
+    "pretest": "npm run check:versions",
     "test": "npm test --workspaces --if-present",
     "test:unit": "npm run test:unit --workspaces --if-present",
     "test:integration": "npm run test:integration --workspaces --if-present"

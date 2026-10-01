@@ -9,7 +9,7 @@
       "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then cd packages/vscode && npx @vscode/vsce publish -p $VSCE_PAT --packagePath ./*.vsix; fi"
     }],
     ["@semantic-release/git", {
-      "assets": ["package.json", "packages/vscode/package.json", "package-lock.json", "CHANGELOG.md"],
+      "assets": ["package.json", "packages/*/package.json", "package-lock.json", "CHANGELOG.md"],
       "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
     }],
     ["@semantic-release/github", {
