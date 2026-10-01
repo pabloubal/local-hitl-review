@@ -20,7 +20,7 @@ Every writer (the extension, the `lhr` CLI, the MCP server, and agents writing f
 - **One directory per thread.** `thread.md` holds the saved anchor and the thread's metadata. The anchor never changes (see the anchor-state decision), so `thread.md` never needs rewriting.
 - **Message file names:** `<UTC timestamp>-<author>-<random>.md`, with the timestamp in `YYYYMMDDTHHMMSSZ` form. Names sort into message order and never collide, whether between writers or branches. An agent without our tools can make one with `date -u +%Y%m%dT%H%M%SZ`. Thread IDs use the same timestamp-plus-random scheme.
 - **Status comes from messages.** A message may carry `status: resolved` (or `status: open`) in its frontmatter. The latest message that sets a status wins, and any later message without one reopens a resolved thread. "Whose turn" is the author of the last message.
-- **Drafts never enter the shared tree.** Draft messages wait in `.lhr/drafts/`, which is gitignored. Submitting a review round moves them into their threads and writes one round file. Its frontmatter records the verdict and the messages submitted, and its body is the review summary. Agents that read the tree can't see a draft.
+- **Drafts never enter the shared tree.** Draft messages wait in `.lhr/drafts/`, which is gitignored. Submitting a review round moves them into their threads and writes one round file. Its frontmatter records the verdict, and its body is the review summary. Each submitted message carries `round: <round-id>`; the round file doesn't list them (amended by ADR 0005). Agents that read the tree can't see a draft.
 
 ## Considered options
 
@@ -32,5 +32,5 @@ Every writer (the extension, the `lhr` CLI, the MCP server, and agents writing f
 ## Consequences
 
 - Many small files. Readers list a directory and sort by name; that is cheap at review scale.
-- The field lists for `thread.md`, messages and round files belong to the schema ticket, which also decides where GitHub IDs from `review push` are recorded without rewriting files.
+- The field lists for `thread.md`, messages and round files are in `docs/spec/file-format-v2.md`. GitHub IDs from `review push` go in push records (ADR 0005).
 - Moving from `.feedback/` to `.lhr/` is part of the migration ticket.
