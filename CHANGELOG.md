@@ -1,3 +1,10 @@
+## [0.18.1](https://github.com/pabloubal/local-hitl-review/compare/v0.18.0...v0.18.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **comments:** submit comment on Cmd+Enter despite keymap extensions ([#58](https://github.com/pabloubal/local-hitl-review/issues/58)) ([99351d0](https://github.com/pabloubal/local-hitl-review/commit/99351d028ff63342ee97021116ba47757ff2c00e)), closes [#56](https://github.com/pabloubal/local-hitl-review/issues/56)
+
 # [0.18.0](https://github.com/pabloubal/local-hitl-review/compare/v0.17.0...v0.18.0) (2026-09-29)
 
 
