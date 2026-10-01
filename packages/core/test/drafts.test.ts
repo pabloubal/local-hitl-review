@@ -264,7 +264,7 @@ Fix these
 `,
       );
       assert.deepEqual(await c.ls('.lhr/rounds'), ['20261001T140000Z-rrrrrr.md']);
-      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore']);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
       assert.equal(
         await c.read(`.lhr/threads/${tid}/${m.messageId}.md`),
         `---
@@ -293,12 +293,18 @@ reply
     await withCtx(async (c) => {
       c.randoms.push('rrrrrr');
       const res = await c.tree.submitRound({ verdict: 'approve', summary: '', author: HUMAN });
-      assert.deepEqual(res, { roundId: '20261001T120000Z-rrrrrr', threadIds: [], messageIds: [] });
+      assert.deepEqual(res, {
+        roundId: '20261001T120000Z-rrrrrr',
+        threadIds: [],
+        messageIds: [],
+        resumed: false,
+        skippedDraftIds: [],
+      });
       assert.equal(
         await c.read('.lhr/rounds/20261001T120000Z-rrrrrr.md'),
         '---\nverdict: approve\nauthor.kind: human\nauthor.name: LHR Test\n---\n',
       );
-      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore']);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
       await assert.rejects(
         c.tree.submitRound({ verdict: 'approve', summary: '', author: AGENT }),
         hasCode('INVALID_INPUT'),
@@ -316,7 +322,10 @@ reply
       const root = c.repo.root;
       // Hand-built interrupted state: marker, round file, the draft thread's thread.md and
       // m1 already copied into place, but their draft files not yet deleted.
-      await writeFile(`${root}/.lhr/drafts/.submitting`, `${roundId}\n`);
+      await writeFile(
+        `${root}/.lhr/drafts/.submitting`,
+        JSON.stringify({ round: roundId, messages: [d.messageId, m1.messageId, m2.messageId] }),
+      );
       await mkdir(`${root}/.lhr/rounds`, { recursive: true });
       await writeFile(
         `${root}/.lhr/rounds/${roundId}.md`,
@@ -347,9 +356,10 @@ reply
         author: HUMAN,
       });
       assert.equal(res.roundId, roundId);
+      assert.equal(res.resumed, true);
       assert.deepEqual(res.messageIds.sort(), [d.messageId, m1.messageId, m2.messageId].sort());
       await assert.rejects(c.read('.lhr/drafts/.submitting'));
-      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore']);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
       assert.deepEqual(await c.ls('.lhr/rounds'), [`${roundId}.md`]);
       assert.equal((await c.read(`.lhr/rounds/${roundId}.md`)).includes('half'), true);
       const snap = await c.tree.load();
@@ -372,11 +382,141 @@ reply
       const tid = await agentThread(c);
       const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
       const roundId = '20261001T150000Z-iiiiii';
-      await writeFile(`${c.repo.root}/.lhr/drafts/.submitting`, roundId);
+      await writeFile(
+        `${c.repo.root}/.lhr/drafts/.submitting`,
+        JSON.stringify({ round: roundId, messages: [m.messageId] }),
+      );
       const res = await c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
       assert.equal(res.roundId, roundId);
       assert.deepEqual(res.messageIds, [m.messageId]);
       assert.equal((await c.read(`.lhr/rounds/${roundId}.md`)).includes('verdict: comment'), true);
+    });
+  });
+});
+
+describe('crash safety', () => {
+  const marker = (c: Ctx): string => `${c.repo.root}/.lhr/drafts/.submitting`;
+
+  it('treats an empty or truncated marker as absent and starts a new round', async () => {
+    for (const junk of ['', '{"round": "2026', 'not json', '{"round":"bad","messages":[]}']) {
+      await withCtx(async (c) => {
+        const tid = await agentThread(c);
+        const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+        await writeFile(marker(c), junk);
+        c.clock('130000');
+        c.randoms.push('rrrrrr');
+        const res = await c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
+        assert.equal(res.resumed, false);
+        assert.equal(res.roundId, '20261001T130000Z-rrrrrr');
+        assert.deepEqual(res.messageIds, [m.messageId]);
+        assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      });
+    }
+  });
+
+  it('resumes after a kill right after the round file was written', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+      const roundId = '20261001T150000Z-iiiiii';
+      await writeFile(marker(c), JSON.stringify({ round: roundId, messages: [m.messageId] }));
+      await mkdir(`${c.repo.root}/.lhr/rounds`, { recursive: true });
+      await writeFile(
+        `${c.repo.root}/.lhr/rounds/${roundId}.md`,
+        '---\nverdict: comment\nauthor.kind: human\nauthor.name: LHR Test\n---\n',
+      );
+      assert.deepEqual((await c.tree.load()).problems, []);
+      const res = await c.tree.submitRound({ verdict: 'approve', summary: 'z', author: HUMAN });
+      assert.equal(res.resumed, true);
+      assert.equal(res.roundId, roundId);
+      assert.deepEqual(res.messageIds, [m.messageId]);
+      assert.equal((await c.tree.load()).thread(tid)?.messages.length, 2);
+    });
+  });
+
+  it('accepts a pre-existing complete target thread.md and a gone source', async () => {
+    await withCtx(async (c) => {
+      const d = await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'a', author: HUMAN });
+      const roundId = '20261001T150000Z-iiiiii';
+      await writeFile(marker(c), JSON.stringify({ round: roundId, messages: [d.messageId] }));
+      await mkdir(`${c.repo.root}/.lhr/threads/${d.threadId}`, { recursive: true });
+      await writeFile(
+        `${c.repo.root}/.lhr/threads/${d.threadId}/thread.md`,
+        await c.read(`.lhr/drafts/threads/${d.threadId}/thread.md`),
+      );
+      const res = await c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+      assert.deepEqual(res.threadIds, [d.threadId]);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      assert.equal((await c.tree.load()).thread(d.threadId)?.messages.length, 1);
+      // a listed message whose draft is already gone and whose target exists is fine
+      await writeFile(marker(c), JSON.stringify({ round: roundId, messages: [d.messageId] }));
+      const again = await c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+      assert.equal(again.resumed, true);
+      assert.equal(again.roundId, roundId);
+    });
+  });
+
+  it('removes a draft thread once all its messages are discarded', async () => {
+    await withCtx(async (c) => {
+      const d = await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'a', author: HUMAN });
+      await c.tree.discardDraft(d.messageId);
+      assert.deepEqual(await c.ls('.lhr/drafts/threads'), []);
+      assert.equal((await c.tree.load()).threads({ includeDrafts: true }).length, 0);
+    });
+  });
+
+  it('keeps a draft added while .submitting exists as a draft', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m1 = await c.tree.addDraftMessage(tid, { body: 'one', author: HUMAN });
+      const roundId = '20261001T150000Z-iiiiii';
+      await writeFile(marker(c), JSON.stringify({ round: roundId, messages: [m1.messageId] }));
+      const m2 = await c.tree.addDraftMessage(tid, { body: 'two', author: HUMAN });
+      const res = await c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+      assert.equal(res.resumed, true);
+      assert.deepEqual(res.messageIds, [m1.messageId]);
+      assert.deepEqual(await c.ls(`.lhr/drafts/threads/${tid}`), [`${m2.messageId}.md`]);
+      await assert.rejects(c.read('.lhr/drafts/.submitting'));
+    });
+  });
+
+  it('updateDraft after submit throws NOT_A_DRAFT and creates nothing in drafts/', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'one', author: HUMAN });
+      await c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+      await assert.rejects(
+        c.tree.updateDraft(m.messageId, { body: 'late' }),
+        hasCode('NOT_A_DRAFT'),
+      );
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
+    });
+  });
+
+  it('skips invalid drafts, leaves them in drafts and reports them', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const good = await c.tree.addDraftMessage(tid, { body: 'one', author: HUMAN });
+      const badId = '20261001T120000Z-human-badbad';
+      await writeFile(
+        `${c.repo.root}/.lhr/drafts/threads/${tid}/${badId}.md`,
+        '---\nauthor.kind: human\nauthor.name: LHR Test\n---\n',
+      );
+      const res = await c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+      assert.deepEqual(res.messageIds, [good.messageId]);
+      assert.deepEqual(res.skippedDraftIds, [badId]);
+      assert.deepEqual(await c.ls(`.lhr/drafts/threads/${tid}`), [`${badId}.md`]);
+    });
+  });
+
+  it('immediate writes leave no temp files behind', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      await c.tree.reply(tid, { body: 'r', author: AGENT });
+      await c.tree.resolve(tid, HUMAN);
+      assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
+      assert.equal(await c.read('.lhr/drafts/.gitignore'), '*\n');
     });
   });
 });

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
@@ -107,6 +108,68 @@ export async function createExclusive(file: string, content: string): Promise<bo
   }
 }
 
+/** `.lhr/drafts/.tmp/`, where atomic writes stage their content. Never read as tree content. */
+export function tempDir(tree: Tree): string {
+  return path.join(tree.root, '.lhr', 'drafts', '.tmp');
+}
+
+/** Creates `.lhr/drafts/.tmp/` and `.lhr/drafts/.gitignore` (`*`) if missing. */
+export async function ensureDraftsRoot(tree: Tree): Promise<void> {
+  await mkdir(tempDir(tree), { recursive: true });
+  await createExclusive(path.join(tree.root, '.lhr', 'drafts', '.gitignore'), '*\n');
+}
+
+/** Writes `content` to a fsynced temp file and returns its path. */
+async function writeTemp(tree: Tree, content: string): Promise<string> {
+  await ensureDraftsRoot(tree);
+  const tmp = path.join(tempDir(tree), randomUUID());
+  const handle = await open(tmp, 'wx');
+  try {
+    await handle.writeFile(content);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  return tmp;
+}
+
+async function discardTemp(tmp: string): Promise<void> {
+  try {
+    await unlink(tmp);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
+/**
+ * Creates `file` atomically and exclusively: the content is written and fsynced to a
+ * temp file, then hard-linked into place. `file` is therefore either absent or complete.
+ * Returns false when it already exists. The directory of `file` must exist.
+ */
+export async function createAtomic(tree: Tree, file: string, content: string): Promise<boolean> {
+  const tmp = await writeTemp(tree, content);
+  try {
+    await link(tmp, file);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw err;
+  } finally {
+    await discardTemp(tmp);
+  }
+}
+
+/** Replaces `file` atomically (temp file, then rename over it). */
+export async function replaceAtomic(tree: Tree, file: string, content: string): Promise<void> {
+  const tmp = await writeTemp(tree, content);
+  try {
+    await rename(tmp, file);
+  } catch (err) {
+    await discardTemp(tmp);
+    throw err;
+  }
+}
+
 /** Writes a new message file into `dir` and returns its message ID. */
 export async function writeMessage(
   tree: Tree,
@@ -116,7 +179,7 @@ export async function writeMessage(
 ): Promise<string> {
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     const name = tree.newMessageFileName(kind);
-    if (await createExclusive(path.join(dir, name), text)) return name.slice(0, -3);
+    if (await createAtomic(tree, path.join(dir, name), text)) return name.slice(0, -3);
   }
   throw new LhrError('GIT_FAILED', `could not find an unused message file name in ${dir}`);
 }
@@ -182,7 +245,7 @@ export async function createThread(
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
       throw err;
     }
-    if (!(await createExclusive(path.join(dir, 'thread.md'), text))) continue;
+    if (!(await createAtomic(tree, path.join(dir, 'thread.md'), text))) continue;
     // A crash between thread.md and the first message leaves a thread with no
     // messages, which check() reports as EmptyThread. The spec defines no
     // crash-safe ordering for immediate writes.
