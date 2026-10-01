@@ -4,7 +4,8 @@ import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
 import { GitBatch, GitExitError, runGit } from './git.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
-import type { Author, TreeSnapshot } from './model.js';
+import { computeAnchors } from './anchoring.js';
+import type { AnchorOptions, AnchorResult, Author, ThreadView, TreeSnapshot } from './model.js';
 import { readTree } from './read.js';
 import { buildSnapshot } from './snapshot.js';
 import {
@@ -54,6 +55,11 @@ export interface LhrTree {
   resolve(threadId: string, author: Author): Promise<StatusChangeResult>;
   /** Writes an empty-bodied `status: open` message unless already open. */
   reopen(threadId: string, author: Author): Promise<StatusChangeResult>;
+  /**
+   * Where each thread sits in the current code (ADR 0006), keyed by thread
+   * ID. Calculated, never written back. All threads on a file share one diff.
+   */
+  anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>>;
   /** Releases the long-lived git process. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -109,6 +115,10 @@ export class Tree implements LhrTree {
 
   reopen(threadId: string, author: Author): Promise<StatusChangeResult> {
     return reopen(this, threadId, author);
+  }
+
+  anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>> {
+    return computeAnchors({ root: this.root, gitPath: this.gitPath, git: this.git }, threads, opts);
   }
 
   dispose(): Promise<void> {

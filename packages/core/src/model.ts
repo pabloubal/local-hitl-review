@@ -35,6 +35,27 @@ export interface LineAnchor extends AnchorBase {
 
 export type Anchor = FileAnchor | LineAnchor;
 
+export type AnchorState = 'current' | 'outdated' | 'orphaned';
+export type AnchorMethod = 'diff' | 'text-search' | 'moved' | 'path' | 'pinned';
+
+/** Where a thread sits in the code in front of you (ADR 0006). */
+export interface AnchorResult {
+  state: AnchorState;
+  /** May differ from anchor.path after a rename. */
+  path: string;
+  /** Absent when orphaned and for file threads. */
+  startLine?: number;
+  endLine?: number;
+  /** "from branch X" label, only while X exists. */
+  fromBranch?: string;
+  method: AnchorMethod;
+}
+
+export interface AnchorOptions {
+  /** Repo-relative path -> unsaved editor text; replaces the content on disk. */
+  overrides?: Map<string, string>;
+}
+
 export interface MessageView {
   id: string;
   createdAt: Date;
