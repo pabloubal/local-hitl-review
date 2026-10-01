@@ -184,12 +184,18 @@ function unreadable(rel: string, err: unknown): Diagnostic {
   };
 }
 
+/** Tree root plus the sink that diagnostics are collected into. */
+interface ReadContext {
+  root: string;
+  problems: Diagnostic[];
+}
+
 /** File text, or undefined if absent (silently) or unreadable (with a diagnostic). */
-async function readText(root: string, rel: string, problems: Diagnostic[]): Promise<string | undefined> {
+async function readText(ctx: ReadContext, rel: string): Promise<string | undefined> {
   try {
-    return await readFile(path.join(root, rel), 'utf8');
+    return await readFile(path.join(ctx.root, rel), 'utf8');
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') problems.push(unreadable(rel, err));
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') ctx.problems.push(unreadable(rel, err));
     return undefined;
   }
 }
@@ -200,15 +206,15 @@ interface Entry {
   isFile: boolean;
 }
 
-async function listDir(root: string, rel: string, problems: Diagnostic[]): Promise<Entry[]> {
+async function listDir(ctx: ReadContext, rel: string): Promise<Entry[]> {
   try {
-    const entries = await readdir(path.join(root, rel), { withFileTypes: true });
+    const entries = await readdir(path.join(ctx.root, rel), { withFileTypes: true });
     return entries
       .map((e) => ({ name: e.name, isDir: e.isDirectory(), isFile: e.isFile() }))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'ENOTDIR') problems.push(unreadable(rel, err));
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') ctx.problems.push(unreadable(rel, err));
     return [];
   }
 }
@@ -228,12 +234,12 @@ interface ThreadMd {
   severity?: Severity;
 }
 
-async function readThreadMd(root: string, rel: string, problems: Diagnostic[]): Promise<ThreadMd | undefined> {
-  const text = await readText(root, rel, problems);
+async function readThreadMd(ctx: ReadContext, rel: string): Promise<ThreadMd | undefined> {
+  const text = await readText(ctx, rel);
   if (text === undefined) return undefined;
   const parsed = parseFrontmatter(text, rel);
   if (parsed.diagnostics.length > 0) {
-    problems.push(...parsed.diagnostics);
+    ctx.problems.push(...parsed.diagnostics);
     return undefined;
   }
   const f = new Fields(parsed.data, rel);
@@ -249,7 +255,7 @@ async function readThreadMd(root: string, rel: string, problems: Diagnostic[]): 
       );
     }
   }
-  problems.push(...f.problems);
+  ctx.problems.push(...f.problems);
   if (!f.ok || anchor === undefined) return undefined;
   const out: ThreadMd = { anchor };
   if (snapshot !== undefined) out.snapshot = snapshot;
@@ -258,22 +264,21 @@ async function readThreadMd(root: string, rel: string, problems: Diagnostic[]): 
 }
 
 async function readMessage(
-  root: string,
+  ctx: ReadContext,
   rel: string,
   name: string,
   isDraft: boolean,
-  problems: Diagnostic[],
 ): Promise<MessageView | undefined> {
   const parsedName = parseMessageFileName(name);
   if (!parsedName) {
-    problems.push(invalidName(rel, 'message file'));
+    ctx.problems.push(invalidName(rel, 'message file'));
     return undefined;
   }
-  const text = await readText(root, rel, problems);
+  const text = await readText(ctx, rel);
   if (text === undefined) return undefined;
   const parsed = parseFrontmatter(text, rel);
   if (parsed.diagnostics.length > 0) {
-    problems.push(...parsed.diagnostics);
+    ctx.problems.push(...parsed.diagnostics);
     return undefined;
   }
   const f = new Fields(parsed.data, rel);
@@ -292,7 +297,7 @@ async function readMessage(
   if (f.ok && parsed.body.trim() === '' && status === undefined && severity === undefined) {
     f.fail(DiagnosticCode.EmptyBody, 'message body is empty and neither status nor severity is set');
   }
-  problems.push(...f.problems);
+  ctx.problems.push(...f.problems);
   if (!f.ok || author === undefined) return undefined;
   const msg: MessageView = {
     id: parsedName.id,
@@ -309,24 +314,23 @@ async function readMessage(
 }
 
 async function readMessages(
-  root: string,
+  ctx: ReadContext,
   dirRel: string,
   isDraft: boolean,
-  problems: Diagnostic[],
 ): Promise<MessageView[]> {
-  const files = (await listDir(root, dirRel, problems)).filter(
+  const files = (await listDir(ctx, dirRel)).filter(
     (e) => (e.isFile || e.isDir) && e.name.endsWith('.md') && e.name !== THREAD_FILE,
   );
   const results = await Promise.all(
     files.map(async (e) => {
       const local: Diagnostic[] = [];
-      const message = await readMessage(root, `${dirRel}/${e.name}`, e.name, isDraft, local);
+      const message = await readMessage({ ...ctx, problems: local }, `${dirRel}/${e.name}`, e.name, isDraft);
       return { message, local };
     }),
   );
   const messages: MessageView[] = [];
   for (const r of results) {
-    problems.push(...r.local);
+    ctx.problems.push(...r.local);
     if (r.message) messages.push(r.message);
   }
   return messages.sort(byId);
@@ -342,8 +346,8 @@ interface ThreadDir {
   problems: Diagnostic[];
 }
 
-async function listThreadDirs(root: string, base: string, problems: Diagnostic[]): Promise<ThreadDir[]> {
-  const dirs = (await listDir(root, base, problems)).filter((e) => e.isDir);
+async function listThreadDirs(ctx: ReadContext, base: string): Promise<ThreadDir[]> {
+  const dirs = (await listDir(ctx, base)).filter((e) => e.isDir);
   return dirs.map((e) => ({ id: e.name, rel: `${base}/${e.name}`, problems: [] }));
 }
 
@@ -356,11 +360,12 @@ interface SubmittedResult {
 }
 
 async function loadSubmitted(root: string, dir: ThreadDir): Promise<SubmittedResult> {
+  const ctx: ReadContext = { root, problems: dir.problems };
   if (!parseId(dir.id)) {
     dir.problems.push(invalidName(dir.rel, 'thread directory'));
     return { dir };
   }
-  const meta = await readThreadMd(root, `${dir.rel}/${THREAD_FILE}`, dir.problems);
+  const meta = await readThreadMd(ctx, `${dir.rel}/${THREAD_FILE}`);
   if (dir.problems.length > 0) return { dir };
   if (!meta) {
     dir.problems.push({
@@ -371,7 +376,7 @@ async function loadSubmitted(root: string, dir: ThreadDir): Promise<SubmittedRes
     });
     return { dir };
   }
-  const messages = await readMessages(root, dir.rel, false, dir.problems);
+  const messages = await readMessages(ctx, dir.rel, false);
   if (messages.length === 0) return { dir, empty: meta };
   return { dir, thread: record(dir.id, false, meta, messages) };
 }
@@ -394,6 +399,7 @@ async function loadDraft(
   dir: ThreadDir,
   submitted: Map<string, SubmittedResult>,
 ): Promise<ThreadRecord | undefined> {
+  const ctx: ReadContext = { root, problems: dir.problems };
   if (!parseId(dir.id)) {
     dir.problems.push(invalidName(dir.rel, 'thread directory'));
     return undefined;
@@ -401,7 +407,7 @@ async function loadDraft(
   const twin = submitted.get(dir.id);
   if (twin) {
     // Submitted thread.md wins; a draft thread.md here is a leftover of an interrupted submit.
-    const messages = await readMessages(root, dir.rel, true, dir.problems);
+    const messages = await readMessages(ctx, dir.rel, true);
     if (twin.empty && messages.length > 0) {
       // Interrupted submit of a draft thread: thread.md was moved, messages were not.
       twin.rescued = true;
@@ -412,7 +418,7 @@ async function loadDraft(
     const extra = messages.filter((m) => !seen.has(m.id));
     return { ...twin.thread, messages: [...twin.thread.messages, ...extra].sort(byId) };
   }
-  const meta = await readThreadMd(root, `${dir.rel}/${THREAD_FILE}`, dir.problems);
+  const meta = await readThreadMd(ctx, `${dir.rel}/${THREAD_FILE}`);
   if (dir.problems.length > 0) return undefined;
   if (!meta) {
     dir.problems.push({
@@ -423,7 +429,7 @@ async function loadDraft(
     });
     return undefined;
   }
-  const messages = await readMessages(root, dir.rel, true, dir.problems);
+  const messages = await readMessages(ctx, dir.rel, true);
   if (messages.length === 0) return undefined;
   return record(dir.id, true, meta, messages);
 }
@@ -436,13 +442,14 @@ interface RoundResult {
 async function loadRound(root: string, name: string): Promise<RoundResult> {
   const rel = `.lhr/rounds/${name}`;
   const problems: Diagnostic[] = [];
+  const ctx: ReadContext = { root, problems };
   const id = name.slice(0, -3);
   const parsedId = parseId(id);
   if (!parsedId) {
     problems.push(invalidName(rel, 'round file'));
     return { problems };
   }
-  const text = await readText(root, rel, problems);
+  const text = await readText(ctx, rel);
   if (text === undefined) return { problems };
   const parsed = parseFrontmatter(text, rel);
   if (parsed.diagnostics.length > 0) return { problems: parsed.diagnostics };
@@ -459,10 +466,11 @@ async function loadRound(root: string, name: string): Promise<RoundResult> {
 
 export async function readTree(root: string): Promise<TreeRecords> {
   const rootProblems: Diagnostic[] = [];
+  const ctx: ReadContext = { root, problems: rootProblems };
   const [submittedDirs, draftDirs, roundEntries] = await Promise.all([
-    listThreadDirs(root, '.lhr/threads', rootProblems),
-    listThreadDirs(root, '.lhr/drafts/threads', rootProblems),
-    listDir(root, '.lhr/rounds', rootProblems),
+    listThreadDirs(ctx, '.lhr/threads'),
+    listThreadDirs(ctx, '.lhr/drafts/threads'),
+    listDir(ctx, '.lhr/rounds'),
   ]);
 
   const submittedResults = await Promise.all(submittedDirs.map((d) => loadSubmitted(root, d)));
