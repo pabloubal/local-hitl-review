@@ -37,19 +37,19 @@ Every file starts with frontmatter between two `---` lines, followed by a markdo
 
 ## `thread.md`
 
-| Key | Required | Values | Meaning |
-|-----|----------|--------|---------|
-| `anchor.kind` | yes | `line`, `file` | Line-range thread or file-level thread |
-| `anchor.path` | yes | repo-relative POSIX path | The file the thread is on |
-| `anchor.side` | yes | `new`, `old` | Side of a diff (mapped to GitHub `RIGHT`/`LEFT` on push) |
-| `anchor.commit` | yes | full commit SHA | `HEAD` when the thread was created; for the `old` side, the base commit compared against |
-| `anchor.branch` | no | branch name | Branch checked out at creation; absent when detached |
-| `anchor.blob` | `line` only | git object ID | `git hash-object -w` of the file content the line numbers refer to (includes uncommitted edits) |
-| `anchor.startLine` | `line` only | integer ≥ 1 | First anchored line, 1-based |
-| `anchor.endLine` | `line` only | integer ≥ `startLine` | Last anchored line, inclusive |
-| `anchor.contextBefore` | `line` only | integer ≥ 0 | Snapshot lines before `startLine` (normally 3, fewer at the top of a file) |
-| `anchor.contextAfter` | `line` only | integer ≥ 0 | Snapshot lines after `endLine` |
-| `severity` | no | `critical`, `high`, `medium`, `low` | Starting severity; default `medium` |
+| Key                    | Required    | Values                              | Meaning                                                                                         |
+| ---------------------- | ----------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `anchor.kind`          | yes         | `line`, `file`                      | Line-range thread or file-level thread                                                          |
+| `anchor.path`          | yes         | repo-relative POSIX path            | The file the thread is on                                                                       |
+| `anchor.side`          | yes         | `new`, `old`                        | Side of a diff (mapped to GitHub `RIGHT`/`LEFT` on push)                                        |
+| `anchor.commit`        | yes         | full commit SHA                     | `HEAD` when the thread was created; for the `old` side, the base commit compared against        |
+| `anchor.branch`        | no          | branch name                         | Branch checked out at creation; absent when detached                                            |
+| `anchor.blob`          | `line` only | git object ID                       | `git hash-object -w` of the file content the line numbers refer to (includes uncommitted edits) |
+| `anchor.startLine`     | `line` only | integer ≥ 1                         | First anchored line, 1-based                                                                    |
+| `anchor.endLine`       | `line` only | integer ≥ `startLine`               | Last anchored line, inclusive                                                                   |
+| `anchor.contextBefore` | `line` only | integer ≥ 0                         | Snapshot lines before `startLine` (normally 3, fewer at the top of a file)                      |
+| `anchor.contextAfter`  | `line` only | integer ≥ 0                         | Snapshot lines after `endLine`                                                                  |
+| `severity`             | no          | `critical`, `high`, `medium`, `low` | Starting severity; default `medium`                                                             |
 
 **Body:** for a `line` thread, exactly one fenced code block holding the snapshot: `contextBefore` lines, the anchored lines, then `contextAfter` lines, byte for byte. The fence is longer than any backtick run in the snapshot; the info string may name the language. For a `file` thread the body is empty.
 
@@ -57,28 +57,28 @@ The snapshot exists because git may garbage-collect `anchor.blob`. Anchoring fal
 
 ## Message file
 
-| Key | Required | Values | Meaning |
-|-----|----------|--------|---------|
-| `author.kind` | yes | `human`, `agent` | Must match the kind in the file name |
-| `author.name` | yes | string | Git `user.name` for a human; the agent product (`claude-code`) for an agent |
-| `author.session` | no | string | Agent session ID; used to route nudges (ADR 0001) |
-| `author.githubLogin` | no | string | Set only on messages imported from GitHub |
-| `round` | no | round ID | The review round that submitted this message; absent for agent messages and messages added outside a round |
-| `status` | no | `open`, `resolved` | Changes the thread's status |
-| `severity` | no | `critical`, `high`, `medium`, `low` | Changes the thread's severity |
-| `clientId` | no | string | Caller-chosen ID, unique within the thread; a write with a `clientId` the thread already has does nothing |
+| Key                  | Required | Values                              | Meaning                                                                                                    |
+| -------------------- | -------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `author.kind`        | yes      | `human`, `agent`                    | Must match the kind in the file name                                                                       |
+| `author.name`        | yes      | string                              | Git `user.name` for a human; the agent product (`claude-code`) for an agent                                |
+| `author.session`     | no       | string                              | Agent session ID; used to route nudges (ADR 0001)                                                          |
+| `author.githubLogin` | no       | string                              | Set only on messages imported from GitHub                                                                  |
+| `round`              | no       | round ID                            | The review round that submitted this message; absent for agent messages and messages added outside a round |
+| `status`             | no       | `open`, `resolved`                  | Changes the thread's status                                                                                |
+| `severity`           | no       | `critical`, `high`, `medium`, `low` | Changes the thread's severity                                                                              |
+| `clientId`           | no       | string                              | Caller-chosen ID, unique within the thread; a write with a `clientId` the thread already has does nothing  |
 
-**Body:** markdown. It may be empty only if `status` or `severity` is set. A suggested replacement for the anchored lines is a ```` ```suggestion ```` fence in the body, as on GitHub.
+**Body:** markdown. It may be empty only if `status` or `severity` is set. A suggested replacement for the anchored lines is a ` ```suggestion ` fence in the body, as on GitHub.
 
 Messages can't be edited once submitted. A correction is a new message.
 
 ## Round file
 
-| Key | Required | Values | Meaning |
-|-----|----------|--------|---------|
-| `verdict` | yes | `approve`, `comment`, `request-changes` | The reviewer's verdict |
-| `author.kind` | yes | `human` | Rounds are submitted by humans |
-| `author.name` | yes | string | As on messages |
+| Key           | Required | Values                                  | Meaning                        |
+| ------------- | -------- | --------------------------------------- | ------------------------------ |
+| `verdict`     | yes      | `approve`, `comment`, `request-changes` | The reviewer's verdict         |
+| `author.kind` | yes      | `human`                                 | Rounds are submitted by humans |
+| `author.name` | yes      | string                                  | As on messages                 |
 
 **Body:** the review summary in markdown, possibly empty. A round's messages are the messages whose `round` is its ID; the round file doesn't list them.
 
@@ -86,34 +86,41 @@ Messages can't be edited once submitted. A correction is a new message.
 
 Written by `review push`, one per push, committed so that no one posts the same round twice.
 
-| Key | Required | Values |
-|-----|----------|--------|
-| `round` | yes | round ID |
-| `github.repo` | yes | `owner/name` |
-| `github.pullNumber` | yes | integer |
-| `github.reviewId` | yes | integer |
-| `github.reviewNodeId` | yes | string |
-| `github.commitId` | yes | SHA the review was posted against (the PR head) |
-| `github.state` | yes | `PENDING`, `COMMENTED`, `APPROVED`, `CHANGES_REQUESTED` |
-| `github.submittedAt` | no | ISO 8601 string; absent while pending |
-| `github.url` | yes | string |
-| `github.verdictDowngraded` | yes | `true` when the verdict was posted as `COMMENT` because the reviewer owns the PR |
+| Key                        | Required | Values                                                                           |
+| -------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `round`                    | yes      | round ID                                                                         |
+| `github.repo`              | yes      | `owner/name`                                                                     |
+| `github.pullNumber`        | yes      | integer                                                                          |
+| `github.reviewId`          | yes      | integer                                                                          |
+| `github.reviewNodeId`      | yes      | string                                                                           |
+| `github.commitId`          | yes      | SHA the review was posted against (the PR head)                                  |
+| `github.state`             | yes      | `PENDING`, `COMMENTED`, `APPROVED`, `CHANGES_REQUESTED`                          |
+| `github.submittedAt`       | no       | ISO 8601 string; absent while pending                                            |
+| `github.url`               | yes      | string                                                                           |
+| `github.verdictDowngraded` | yes      | `true` when the verdict was posted as `COMMENT` because the reviewer owns the PR |
 
-**Body:** exactly one ```` ```json ```` block that maps local IDs to GitHub IDs. Tools write it, people don't:
+**Body:** exactly one ` ```json ` block that maps local IDs to GitHub IDs. Tools write it, people don't:
 
 ```json
 {
   "threads": {
     "<thread-id>": {
       "postedAs": "line | file | review-body | skipped",
-      "rootCommentId": 123, "threadNodeId": "PRRT_…",
-      "commitId": "<sha>", "side": "RIGHT", "startLine": 10, "line": 12
+      "rootCommentId": 123,
+      "threadNodeId": "PRRT_…",
+      "commitId": "<sha>",
+      "side": "RIGHT",
+      "startLine": 10,
+      "line": 12
     }
   },
   "messages": {
     "<message-id>": {
-      "commentId": 456, "commentNodeId": "PRRC_…",
-      "inReplyToId": 123, "url": "https://…", "updatedAt": "2026-10-01T11:00:00Z"
+      "commentId": 456,
+      "commentNodeId": "PRRC_…",
+      "inReplyToId": 123,
+      "url": "https://…",
+      "updatedAt": "2026-10-01T11:00:00Z"
     }
   }
 }
