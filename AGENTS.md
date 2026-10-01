@@ -57,9 +57,9 @@ docs/            → documentation and agent guidelines
 <!-- AGENTS-GENERATED:START golden-samples -->
 | For | Reference | Key patterns |
 |-----|-----------|--------------|
-| Pure parsing & logic | `src/parser.ts` | Clean parsing/serialization, robust error handling, unit-tested |
-| Storage & workspace state | `src/feedbackStore.ts` | File-based storage, multi-repo and global/local review support |
-| Tree view & UI state | `src/changedFilesProvider.ts` | SCM view provider, Git integration, compare modes |
+| Pure parsing & logic | `packages/vscode/src/parser.ts` | Clean parsing/serialization, robust error handling, unit-tested |
+| Storage & workspace state | `packages/vscode/src/feedbackStore.ts` | File-based storage, multi-repo and global/local review support |
+| Tree view & UI state | `packages/vscode/src/changedFilesProvider.ts` | SCM view provider, Git integration, compare modes |
 <!-- AGENTS-GENERATED:END golden-samples -->
 
 ## Heuristics (quick decisions)
