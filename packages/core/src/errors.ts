@@ -7,7 +7,8 @@ export type LhrErrorCode =
   | 'DRAFT_NOT_FOUND'
   | 'NOT_A_DRAFT'
   | 'INVALID_INPUT'
-  | 'GIT_FAILED';
+  | 'GIT_FAILED'
+  | 'IO_FAILED';
 
 export class LhrError extends Error {
   readonly code: LhrErrorCode;

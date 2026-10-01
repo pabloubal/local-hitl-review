@@ -1,3 +1,10 @@
+## [0.23.1](https://github.com/pabloubal/local-hitl-review/compare/v0.23.0...v0.23.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **core:** dedicated IO_FAILED error code for file-system failures ([#83](https://github.com/pabloubal/local-hitl-review/issues/83)) ([de4967e](https://github.com/pabloubal/local-hitl-review/commit/de4967ee88d2aca3b7a433733803a5c0493ee429))
+
 # [0.23.0](https://github.com/pabloubal/local-hitl-review/compare/v0.22.0...v0.23.0) (2026-10-01)
 
 

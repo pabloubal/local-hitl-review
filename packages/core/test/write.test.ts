@@ -511,3 +511,31 @@ describe('CRLF and missing final newline', () => {
     });
   });
 });
+
+describe('IO_FAILED', () => {
+  it('is thrown when no unused thread ID is found', async () => {
+    await withCtx(async (c) => {
+      const anchor = { path: 'src/a.ts', kind: 'file' } as const;
+      c.randoms.push('aaaaaa', 'bbbbbb');
+      await c.tree.createThread({ anchor, body: 'one', author: AGENT });
+      c.randoms.push(...Array<string>(10).fill('aaaaaa'));
+      await assert.rejects(
+        c.tree.createThread({ anchor, body: 'two', author: AGENT }),
+        hasCode('IO_FAILED'),
+      );
+    });
+  });
+
+  it('is thrown when no unused message file name is found', async () => {
+    await withCtx(async (c) => {
+      const anchor = { path: 'src/a.ts', kind: 'file' } as const;
+      c.randoms.push('aaaaaa', 'bbbbbb');
+      const t = await c.tree.createThread({ anchor, body: 'one', author: AGENT });
+      c.randoms.push(...Array<string>(10).fill('bbbbbb'));
+      await assert.rejects(
+        c.tree.reply(t.threadId, { body: 'again', author: AGENT }),
+        hasCode('IO_FAILED'),
+      );
+    });
+  });
+});

@@ -1,26 +1,29 @@
 # Review Feedback Summary
 
-A second view in the Source Control sidebar groups all feedback comments, for example by file or severity, and lets the user filter them by status and severity and jump to a thread.
+A second view in the Source Control sidebar lists feedback comments grouped by file, filters them by status and severity, and jumps to a comment's line.
 
 ## Sub-features
 
-- `summary-list`: every `.review` comment appears as a row.
-- `summary-filter`: `Filter Feedback` limits rows by status or severity. The same filter applies to the changed-files view.
-- `summary-open`: clicking a row reveals the thread in its diff.
+- `summary-list`: one row per file (`app.ts`, description `1 open comment`) with one child per comment (description `Line 2`, icon coloured by severity), sorted by severity then time.
+- `summary-filter`: `Filter Feedback` is a multi-select quick pick of `Status: open|acknowledged|resolved|wontfix` and `Severity: critical|high|medium|low`. Default is `Status: open` only. The filter is shared with the changed-files view.
+- `summary-open`: clicking a comment row opens the plain working-tree file (not the diff) at that line.
 
 ## How to get to it (user POV)
 
-- Source Control sidebar → `Review Feedback Summary` view (collapsed by default).
-- The view's title bar has `Filter Feedback` and collapse-all.
+- Source Control sidebar → `Review Feedback Summary` view (collapsed in a fresh profile).
+- The view's title bar has `Filter Feedback`; the palette has `Local HITL Review: Filter Feedback`.
 
 ## Driving it with hitl.mjs
 
-Preconditions: one comment created as in [add-comment](./add-comment.md). *(unverified)*
+Preconditions: one comment created as in [add-comment](./add-comment.md). `S='.pane:has(> .pane-header[aria-label^="Review Feedback Summary"]) .monaco-list-row'`. Verified 2026-10-02.
 
-- **Expand.** `$H click '.pane-header' 'Review Feedback Summary'`.
-- **List.** `$H text '.pane-body .monaco-list-row' --aria` should include a row for the comment. Capture `$H screenshot feedback-summary/list`.
-- **Filter.** `$H palette "Local HITL Review: Filter Feedback"` opens a quick pick. Choose a status that excludes the comment, and the row disappears.
+- **Expand.** `$H click '.pane-header' 'Review Feedback Summary'`, `sleep 1`.
+- **List.** `$H text "$S" --aria` prints `src/app.ts` and the comment row; `$H text "$S"` shows `app.ts` / `1 open comment` and `Line 2`. Capture `$H screenshot feedback-summary/list`.
+- **Filter.** `$H palette "Local HITL Review: Filter Feedback"`, then `$H click '.quick-input-widget .monaco-list-row' 'Status: open'` (unticks) and `... 'Status: resolved'` (ticks), `$H key enter`. `$H text "$S"` is now empty. Repeat with the two rows swapped to restore.
+- **Open.** `$H click "$S" 'Validate'`. `$H text .tab.active --aria` prints `app.ts, preview` and the status bar reads `Ln 2`.
 
 ## Gotchas
 
-- During the first verification run (2026-10-01), the view stayed **empty** after a comment was saved, while the Comments panel and the `.review` file both showed the comment. Find out whether it needs a refresh or this is a bug before treating "empty" as a pass or a failure.
+- Read rows only after the pane has finished expanding (`sleep 1`), and always through the pane-scoped `$S`: `.pane-body .monaco-list-row` mixes in Changes, Graph, Local HITL Review and Comments rows. An earlier run reported this view as "empty" for exactly that reason; the view itself refreshes correctly on save.
+- The comment row's label is the first line of the body, which is always the author header `**human**:` — product gap, #85: every row reads `**human**:` instead of the comment text. Match rows by their aria-label, which holds the full body.
+- Quick-pick rows report tick state via `.monaco-custom-toggle[aria-checked]`; `, Active` in an aria-label means focus, not ticked.

@@ -20,7 +20,7 @@ A reviewer opens a changed file's diff from the Local HITL Review view, starts a
 
 Preconditions: baseline, and `.feedback/` contains no `.review` files.
 
-- **Open the diff.** Click the changed file: `$H click '.pane-body .monaco-list-row' 'M src/app.ts'`. Then `$H text .tab --aria` shows `app.ts (vs main ↔ Working)`.
+- **Open the diff.** Click the changed file: `$H click '.pane-body .monaco-list-row' 'M src/app.ts'` (unique enough unscoped; see SKILL.md for pane-scoped rows). Then `$H text .tab --aria` shows `app.ts (vs main ↔ Working)`.
 - **Place the cursor.** `$H click '.editor-instance .view-line' 'TODO validate'`. The status bar reads `Ln 2`.
 - **Open the widget.** `$H palette "Comments: Add Comment on Current Selection"`. Then `$H eval '!!document.activeElement?.closest(".review-widget")'` prints `true`.
 - **Type and capture the draft.** `$H type "Validate both inputs are finite numbers. #high"` then `$H screenshot add-comment/01-draft`.
@@ -30,7 +30,8 @@ Preconditions: baseline, and `.feedback/` contains no `.review` files.
 
 ## Gotchas
 
-- The palette command `Add Review Comment` is the widget's **submit** action, which expects a comment reply. Run from the palette it silently does nothing. Open the widget with `Comments: Add Comment on Current Selection` instead.
-- Commenting is only allowed on files in the changed set. In the fixture, `README.md` has no comment ranges.
-- Cmd+Enter submits only when focus is inside the widget's text area (`commentEditorFocused`). This branch's fix (#56) covers keymap extensions that rebind Cmd+Enter.
+- The palette command `Add Review Comment` is the widget's **submit** action, which expects a comment reply. Run from the palette it silently does nothing (it throws on `reply.thread`). Its Alt+C keybinding never fires either: its when-clause does not match from the editor or the view (product gap, #84). Open the widget with `Comments: Add Comment on Current Selection` instead.
+- `Comments: Add Comment on Current Selection` is only offered once the extension has registered commenting ranges for the freshly opened diff; `palette` retries for that.
+- Commenting is only allowed on files in the changed set, but on any line of such a file, not only changed lines. In the fixture, `README.md` has no comment ranges.
+- Cmd+Enter submits only when focus is inside the widget's text area (`commentEditorFocused`). It works for new threads and replies in the disposable profile, which has no keymap extensions; #56 tracks cases where it does not.
 - Monaco renders spaces as non-breaking spaces in `.view-line`. The helper normalizes them, but your own `eval` code has to do the same.
