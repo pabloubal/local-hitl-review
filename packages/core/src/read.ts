@@ -152,7 +152,7 @@ function parseLineFields(f: Fields):
 }
 
 /** Contents of the first fenced code block, exactly as stored; undefined if none. */
-function extractSnapshot(body: string): string | undefined {
+export function extractSnapshot(body: string): string | undefined {
   const lines = body.split('\n');
   let open = -1;
   let fenceLen = 0;

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/pabloubal/local-hitl-review/main/packages/core/schema/thread.schema.json",
+  "title": "thread.md",
+  "description": "Parsed frontmatter of an LHR thread.md (file-format-v2).",
+  "required": [
+    "anchor.kind",
+    "anchor.path",
+    "anchor.side",
+    "anchor.commit"
+  ],
+  "properties": {
+    "anchor.kind": {
+      "type": "string",
+      "description": "Line-range thread or file-level thread",
+      "enum": [
+        "line",
+        "file"
+      ]
+    },
+    "anchor.path": {
+      "type": "string",
+      "description": "Repo-relative POSIX path of the file the thread is on"
+    },
+    "anchor.side": {
+      "type": "string",
+      "description": "Side of a diff",
+      "enum": [
+        "new",
+        "old"
+      ]
+    },
+    "anchor.commit": {
+      "type": "string",
+      "description": "Full commit SHA",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "anchor.branch": {
+      "type": "string",
+      "description": "Branch checked out at creation"
+    },
+    "anchor.blob": {
+      "type": "string",
+      "description": "Git object ID of the content the line numbers refer to; required for line threads",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "anchor.startLine": {
+      "type": "integer",
+      "description": "First anchored line, 1-based (>= 1); required for line threads"
+    },
+    "anchor.endLine": {
+      "type": "integer",
+      "description": "Last anchored line, inclusive (>= startLine); required for line threads"
+    },
+    "anchor.contextBefore": {
+      "type": "integer",
+      "description": "Snapshot lines before startLine (>= 0); required for line threads"
+    },
+    "anchor.contextAfter": {
+      "type": "integer",
+      "description": "Snapshot lines after endLine (>= 0); required for line threads"
+    },
+    "severity": {
+      "type": "string",
+      "description": "Starting severity",
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

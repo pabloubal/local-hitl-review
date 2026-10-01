@@ -1,5 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 import { LhrError } from './errors.js';
+import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
 import { GitBatch, GitExitError, runGit } from './git.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
@@ -27,6 +28,11 @@ export interface LhrTree {
    * `problems` on the snapshot; this never throws for file content.
    */
   load(): Promise<TreeSnapshot>;
+  /**
+   * Validates the whole tree, drafts included, against file-format-v2
+   * § Validation. Content problems become diagnostics; never throws for them.
+   */
+  check(): Promise<CheckResult>;
   /** Releases the long-lived git process. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -49,6 +55,10 @@ export class Tree implements LhrTree {
 
   async load(): Promise<TreeSnapshot> {
     return buildSnapshot(await readTree(this.root));
+  }
+
+  check(): Promise<CheckResult> {
+    return checkTree(this.root);
   }
 
   dispose(): Promise<void> {

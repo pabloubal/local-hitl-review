@@ -117,6 +117,18 @@ export const DiagnosticCode = {
   EmptyThread: 'EMPTY_THREAD',
   EmptyBody: 'EMPTY_BODY',
   UnreadableFile: 'UNREADABLE_FILE',
+  FormatMissing: 'FORMAT_MISSING',
+  FormatVersion: 'FORMAT_VERSION',
+  UnknownKey: 'UNKNOWN_KEY',
+  MissingAuthorSession: 'MISSING_AUTHOR_SESSION',
+  MissingLineAnchorKey: 'MISSING_LINE_ANCHOR_KEY',
+  EndLineBeforeStart: 'END_LINE_BEFORE_START',
+  SnapshotLineCount: 'SNAPSHOT_LINE_COUNT',
+  UnknownRound: 'UNKNOWN_ROUND',
+  DuplicateClientId: 'DUPLICATE_CLIENT_ID',
+  InvalidPushBody: 'INVALID_PUSH_BODY',
+  PushUnknownThread: 'PUSH_UNKNOWN_THREAD',
+  PushUnknownMessage: 'PUSH_UNKNOWN_MESSAGE',
 } as const;
 
 export type DiagnosticCode =
