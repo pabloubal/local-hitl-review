@@ -1,0 +1,17 @@
+{
+  "name": "@pablou/lhr-core",
+  "private": true,
+  "version": "0.18.1",
+  "main": "out/src/index.js",
+  "types": "out/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "test:unit": "tsc && node --test out/test/*.test.js",
+    "test": "npm run test:unit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "^5.8.3"
+  }
+}
