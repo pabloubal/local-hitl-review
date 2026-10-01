@@ -452,3 +452,62 @@ status: open
     });
   });
 });
+
+describe('validation before writing', () => {
+  it('leaves nothing on disk when a value cannot be serialized', async () => {
+    await withCtx(async (c) => {
+      const anchor = { path: 'src/a.ts', kind: 'file' as const };
+      await assert.rejects(
+        c.tree.createThread({ anchor, body: 'x', author: { kind: 'agent', name: 'a\nb' } }),
+        hasCode('INVALID_INPUT'),
+      );
+      await assert.rejects(
+        c.tree.createThread({ anchor, body: 'x', author: AGENT, clientId: 'a\u2028b' }),
+        hasCode('INVALID_INPUT'),
+      );
+      await assert.rejects(c.ls('.lhr/threads'), /ENOENT/);
+    });
+  });
+
+  it('reply and resolve throw INVALID_INPUT for unserializable authors', async () => {
+    await withCtx(async (c) => {
+      c.randoms.push('aaaaaa', 'bbbbbb');
+      const { threadId } = await c.tree.createThread({
+        anchor: { path: 'src/a.ts', kind: 'file' },
+        body: 'q',
+        author: HUMAN,
+      });
+      const bad: Author = { kind: 'agent', name: 'ok', session: 'x\ny' };
+      await assert.rejects(
+        c.tree.reply(threadId, { body: 'x', author: bad }),
+        hasCode('INVALID_INPUT'),
+      );
+      await assert.rejects(c.tree.resolve(threadId, bad), hasCode('INVALID_INPUT'));
+      assert.equal((await c.ls(`.lhr/threads/${threadId}`)).length, 2);
+    });
+  });
+});
+
+describe('CRLF and missing final newline', () => {
+  it('loads a thread on the last line of such files with an exact snapshot', async () => {
+    await withCtx(async (c) => {
+      await c.repo.write('src/crlf.ts', 'a\r\nb\r\nc\r\n');
+      await c.repo.write('src/nonl.ts', 'a\nb\nc');
+      const one = await c.tree.createThread({
+        anchor: { path: 'src/crlf.ts', kind: 'line', startLine: 3 },
+        body: 'x',
+        author: AGENT,
+      });
+      const two = await c.tree.createThread({
+        anchor: { path: 'src/nonl.ts', kind: 'line', startLine: 2, endLine: 3 },
+        body: 'x',
+        author: AGENT,
+      });
+      const snap = await c.tree.load();
+      assert.deepEqual(snap.problems, []);
+      assert.equal(snap.thread(one.threadId)?.snapshot, 'a\r\nb\r\nc\r');
+      assert.equal(snap.thread(two.threadId)?.snapshot, 'a\nb\nc');
+      assert.ok((await c.read(`.lhr/threads/${one.threadId}/thread.md`)).includes('c\r\n```\n'));
+    });
+  });
+});

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { LhrError } from './errors.js';
 import { serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
@@ -73,6 +73,7 @@ function validatePath(p: string): void {
   }
 }
 
+/** Splits on \n only, like git diff; lone \r endings are not line breaks. */
 function splitLines(content: string): string[] {
   const lines = content.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
@@ -106,6 +107,37 @@ async function resolveCommit(env: CaptureEnv, rev: string): Promise<string> {
   return out.trim();
 }
 
+/** Object type of `commit:path`, or undefined when the path is absent there. */
+async function objectAt(
+  env: CaptureEnv,
+  commit: string,
+  file: string,
+): Promise<{ id: string; type: string } | undefined> {
+  const id = await orUndefined(
+    runGit(env.gitPath, env.root, ['rev-parse', '--verify', '-q', `${commit}:${file}`]),
+  );
+  if (id === undefined) return undefined;
+  const type = (await runGit(env.gitPath, env.root, ['cat-file', '-t', id.trim()])).trim();
+  return { id: id.trim(), type };
+}
+
+async function requireBlobAt(env: CaptureEnv, commit: string, file: string): Promise<string> {
+  const obj = await objectAt(env, commit, file);
+  if (obj === undefined) throw invalid(`${file} does not exist at ${commit}`);
+  // A directory is a tree and a submodule a commit.
+  if (obj.type !== 'blob') throw invalid(`${file} is not a file at ${commit}`);
+  return obj.id;
+}
+
+async function requireFileOnDisk(env: CaptureEnv, file: string): Promise<void> {
+  try {
+    if ((await stat(path.join(env.root, file))).isFile()) return;
+  } catch {
+    // fall through to the error below
+  }
+  throw invalid(`${file} is not a file on disk`);
+}
+
 /** Content and blob ID the line numbers refer to. */
 async function sourceContent(
   env: CaptureEnv,
@@ -114,39 +146,27 @@ async function sourceContent(
   commit: string,
 ): Promise<{ content: string; blob: string }> {
   if (side === 'old') {
-    const blob = await orUndefined(
-      runGit(env.gitPath, env.root, ['rev-parse', '--verify', '-q', `${commit}:${input.path}`]),
-    );
-    if (blob === undefined) throw invalid(`${input.path} does not exist at ${commit}`);
-    const id = blob.trim();
-    return {
-      content: await runGit(env.gitPath, env.root, ['cat-file', 'blob', id]),
-      blob: id,
-    };
+    const id = await requireBlobAt(env, commit, input.path);
+    return { content: await runGit(env.gitPath, env.root, ['cat-file', 'blob', id]), blob: id };
   }
+  let bytes: Buffer;
   if (input.text !== undefined) {
-    const blob = await runGitWithInput(
-      env.gitPath,
-      env.root,
-      ['hash-object', '-w', '--no-filters', '--stdin'],
-      input.text,
-    );
-    return { content: input.text, blob: blob.trim() };
+    bytes = Buffer.from(input.text, 'utf8');
+  } else {
+    try {
+      bytes = await readFile(path.join(env.root, input.path));
+    } catch (err) {
+      throw invalid(`cannot read ${input.path}: ${String((err as NodeJS.ErrnoException).code)}`);
+    }
   }
-  let content: string;
-  try {
-    content = await readFile(path.join(env.root, input.path), 'utf8');
-  } catch (err) {
-    throw invalid(`cannot read ${input.path}: ${String((err as NodeJS.ErrnoException).code)}`);
-  }
-  const blob = await runGit(env.gitPath, env.root, [
-    'hash-object',
-    '-w',
-    '--no-filters',
-    '--',
-    input.path,
-  ]);
-  return { content, blob: blob.trim() };
+  // One read feeds both the blob and the snapshot, so they always agree.
+  const blob = await runGitWithInput(
+    env.gitPath,
+    env.root,
+    ['hash-object', '-w', '--no-filters', '--stdin'],
+    bytes,
+  );
+  return { content: bytes.toString('utf8'), blob: blob.trim() };
 }
 
 /**
@@ -178,7 +198,11 @@ export async function captureAnchor(env: CaptureEnv, input: AnchorInput): Promis
     ...(branch !== undefined ? { branch } : {}),
   };
 
-  if (input.kind === 'file') return { anchor: { kind: 'file', ...base } };
+  if (input.kind === 'file') {
+    if (side === 'old') await requireBlobAt(env, commit, input.path);
+    else await requireFileOnDisk(env, input.path);
+    return { anchor: { kind: 'file', ...base } };
+  }
 
   const startLine = input.startLine;
   if (startLine === undefined || !Number.isSafeInteger(startLine) || startLine < 1) {

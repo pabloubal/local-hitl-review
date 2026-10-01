@@ -106,10 +106,14 @@ async function createExclusive(file: string, content: string): Promise<boolean> 
 }
 
 /** Writes a new message file into `dir` and returns its message ID. */
-async function writeMessage(tree: Tree, dir: string, m: MessageFields): Promise<string> {
-  const text = messageText(m);
+async function writeMessage(
+  tree: Tree,
+  dir: string,
+  kind: Author['kind'],
+  text: string,
+): Promise<string> {
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    const name = tree.newMessageFileName(m.author.kind);
+    const name = tree.newMessageFileName(kind);
     if (await createExclusive(path.join(dir, name), text)) return name.slice(0, -3);
   }
   throw new LhrError('GIT_FAILED', `could not find an unused message file name in ${dir}`);
@@ -127,12 +131,13 @@ function threadDir(tree: Tree, threadId: string): string {
 
 export async function reply(tree: Tree, threadId: string, input: ReplyInput): Promise<ReplyResult> {
   validateMessage(input);
+  const text = messageText(input);
   const thread = await requireThread(tree, threadId);
   if (input.clientId !== undefined) {
     const existing = thread.messages.find((m) => !m.isDraft && m.clientId === input.clientId);
     if (existing) return { messageId: existing.id, created: false };
   }
-  const messageId = await writeMessage(tree, threadDir(tree, threadId), input);
+  const messageId = await writeMessage(tree, threadDir(tree, threadId), input.author.kind, text);
   return { messageId, created: true };
 }
 
@@ -154,6 +159,14 @@ export async function createThread(
       }
     }
   }
+  const opening: MessageFields = {
+    author: input.author,
+    body: input.body,
+    ...(input.severity !== undefined ? { severity: input.severity } : {}),
+    ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
+  };
+  // Serialize everything before touching disk so bad input leaves no files.
+  const openingText = messageText(opening);
   const captured = await captureAnchor({ root: tree.root, gitPath: tree.gitPath }, input.anchor);
   const text = threadMdText(captured, input.severity);
   const threads = path.join(tree.root, '.lhr', 'threads');
@@ -168,12 +181,10 @@ export async function createThread(
       throw err;
     }
     if (!(await createExclusive(path.join(dir, 'thread.md'), text))) continue;
-    const messageId = await writeMessage(tree, dir, {
-      author: input.author,
-      body: input.body,
-      ...(input.severity !== undefined ? { severity: input.severity } : {}),
-      ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
-    });
+    // A crash between thread.md and the first message leaves a thread with no
+    // messages, which check() reports as EmptyThread. The spec defines no
+    // crash-safe ordering for immediate writes.
+    const messageId = await writeMessage(tree, dir, input.author.kind, openingText);
     return { threadId, messageId, created: true };
   }
   throw new LhrError('GIT_FAILED', 'could not find an unused thread ID');
@@ -186,13 +197,10 @@ async function setStatus(
   status: ThreadStatus,
 ): Promise<StatusChangeResult> {
   validateAuthor(author);
+  const text = messageText({ author, body: '', status });
   const thread = await requireThread(tree, threadId);
   if (thread.status === status) return { changed: false };
-  const messageId = await writeMessage(tree, threadDir(tree, threadId), {
-    author,
-    body: '',
-    status,
-  });
+  const messageId = await writeMessage(tree, threadDir(tree, threadId), author.kind, text);
   return { messageId, changed: true };
 }
 

@@ -213,4 +213,62 @@ describe('captureAnchor', () => {
       await bad({ path: '', kind: 'file' });
     });
   });
+
+  it('keeps CR in CRLF lines and handles a missing final newline at the last line', async () => {
+    await withRepo(async (repo, env) => {
+      await repo.write('src/crlf.ts', 'a\r\nb\r\nc\r\n');
+      const crlf = await captureAnchor(env, {
+        path: 'src/crlf.ts',
+        kind: 'line',
+        startLine: 2,
+        endLine: 3,
+      });
+      // lone \r endings are not line breaks; lines split on \n only, like git diff
+      assert.equal(crlf.snapshot, 'a\r\nb\r\nc\r');
+      assert.equal(crlf.anchor.kind === 'line' && crlf.anchor.contextAfter, 0);
+      await repo.write('src/nonl.ts', 'a\nb\nc');
+      const nonl = await captureAnchor(env, { path: 'src/nonl.ts', kind: 'line', startLine: 3 });
+      assert.equal(nonl.snapshot, 'a\nb\nc');
+      assert.equal(nonl.anchor.kind === 'line' && nonl.anchor.endLine, 3);
+    });
+  });
+
+  it('stores the original bytes of a non-UTF-8 file as the blob', async () => {
+    await withRepo(async (repo, env) => {
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(`${repo.root}/src/bin.txt`, Buffer.from([0x61, 0x0a, 0xff, 0xfe, 0x0a]));
+      const c = await captureAnchor(env, { path: 'src/bin.txt', kind: 'line', startLine: 1 });
+      const blob = c.anchor.kind === 'line' ? c.anchor.blob : '';
+      assert.equal(blob, (await repo.git('hash-object', 'src/bin.txt')).trim());
+    });
+  });
+
+  it('requires a file anchor target to exist', async () => {
+    await withRepo(async (_repo, env, head) => {
+      await assert.rejects(captureAnchor(env, { path: 'src/nope.ts', kind: 'file' }), invalid);
+      await assert.rejects(captureAnchor(env, { path: 'src', kind: 'file' }), invalid);
+      await assert.rejects(
+        captureAnchor(env, { path: 'src/nope.ts', kind: 'file', side: 'old', baseCommit: head }),
+        invalid,
+      );
+      const ok = await captureAnchor(env, {
+        path: 'src/a.ts',
+        kind: 'file',
+        side: 'old',
+        baseCommit: head,
+      });
+      assert.equal(ok.anchor.kind, 'file');
+    });
+  });
+
+  it('rejects an old-side path that is a directory at the commit', async () => {
+    await withRepo(async (_repo, env, head) => {
+      for (const kind of ['line', 'file'] as const) {
+        await assert.rejects(
+          captureAnchor(env, { path: 'src', kind, side: 'old', baseCommit: head, startLine: 1 }),
+          invalid,
+        );
+      }
+    });
+  });
 });
