@@ -644,3 +644,20 @@ describe('filesystem fallbacks', () => {
     });
   });
 });
+
+describe('check() on a tree with drafts', () => {
+  it('reports nothing for drafts, rounds and draft bookkeeping files', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      await c.tree.addDraftMessage(tid, { body: 'submitted', author: HUMAN });
+      await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'new', author: HUMAN });
+      c.clock('130000');
+      await c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
+      await c.tree.addDraftMessage(tid, { body: 'still a draft', author: HUMAN });
+      await mkdir(`${c.repo.root}/.lhr/drafts/.tmp`, { recursive: true });
+      await writeFile(`${c.repo.root}/.lhr/drafts/.tmp/leftover`, 'partial');
+      await writeFile(`${c.repo.root}/.lhr/drafts/.submitting`, '');
+      assert.deepEqual((await c.tree.check()).diagnostics, []);
+    });
+  });
+});
