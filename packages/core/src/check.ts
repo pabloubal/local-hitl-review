@@ -246,7 +246,7 @@ export async function checkTree(root: string): Promise<CheckResult> {
   if (format) c.out.push(format);
 
   const scan = await scanTree(root, { pushes: true });
-  const { states } = parseThreads(scan);
+  const { parsed, states } = parseThreads(scan);
   c.out.push(...scan.problems, ...scan.recordProblems);
 
   const roundIds = new Set(scan.rounds.filter((e) => e.parsedId).map((e) => e.name.slice(0, -3)));
@@ -255,6 +255,7 @@ export async function checkTree(root: string): Promise<CheckResult> {
   const clientUses: { thread: string; clientId: string; rel: string; draft: boolean }[] = [];
 
   for (const dir of [...scan.threads, ...scan.drafts]) {
+    const copies = parsed.get(dir)?.copies;
     c.out.push(...dir.problems);
     if (states.get(dir) === 'empty') c.out.push(emptyThread(dir));
     if (dir.threadMd) {
@@ -296,7 +297,7 @@ export async function checkTree(root: string): Promise<CheckResult> {
         c.error(DiagnosticCode.UnknownRound, rel, `round "${round}" does not exist`);
       }
       // A draft copy of a submitted message is that same message, not a second use.
-      if (typeof data.clientId === 'string' && !e.submittedCopy) {
+      if (typeof data.clientId === 'string' && !copies?.has(e)) {
         clientUses.push({ thread: dir.id, clientId: data.clientId, rel, draft: dir.draft });
       }
     }

@@ -280,11 +280,16 @@ export interface ParsedDir {
   meta?: ThreadMd;
   /** Valid messages, leaving out draft copies of submitted messages. */
   messages: MessageView[];
+  /** Draft message files that are copies of a valid submitted message (see parseThreads). */
+  copies: Set<MessageEntry>;
   problems: Diagnostic[];
 }
 
-/** Parses every file of a thread directory, reporting all broken ones. */
-export function parseDir(dir: ThreadDirEntry): ParsedDir {
+/**
+ * Parses every file of a thread directory, reporting all broken ones. A valid message
+ * whose ID is in `submittedIds` is a copy and is left out of `messages`.
+ */
+function parseDir(dir: ThreadDirEntry, submittedIds: ReadonlySet<string>): ParsedDir {
   const problems: Diagnostic[] = [];
   let meta: ThreadMd | undefined;
   if (dir.threadMd) {
@@ -293,23 +298,34 @@ export function parseDir(dir: ThreadDirEntry): ParsedDir {
     meta = r.value;
   }
   const messages: MessageView[] = [];
+  const copies = new Set<MessageEntry>();
   for (const file of dir.messages) {
     const r = parseMessage(file, dir.draft);
     problems.push(...r.problems);
-    if (r.value && !file.submittedCopy) messages.push(r.value);
+    if (r.value && submittedIds.has(r.value.id)) copies.add(file);
+    else if (r.value) messages.push(r.value);
   }
-  const out: ParsedDir = { messages: messages.sort(byId), problems };
+  const out: ParsedDir = { messages: messages.sort(byId), copies, problems };
   if (meta) out.meta = meta;
   return out;
 }
 
-/** Parses every thread directory and decides what each submitted one amounts to. */
+/**
+ * Parses every thread directory and decides what each submitted one amounts to. A draft
+ * message is a copy (left by an interrupted submitRound) only when its submitted twin
+ * holds a *valid* message with the same ID; otherwise the draft is all there is of it.
+ */
 export function parseThreads(scan: TreeScan): {
   parsed: Map<ThreadDirEntry, ParsedDir>;
   states: Map<ThreadDirEntry, SubmittedState>;
 } {
   const parsed = new Map<ThreadDirEntry, ParsedDir>();
-  for (const dir of [...scan.threads, ...scan.drafts]) parsed.set(dir, parseDir(dir));
+  const none = new Set<string>();
+  for (const dir of scan.threads) parsed.set(dir, parseDir(dir, none));
+  for (const dir of scan.drafts) {
+    const twin = dir.twin && parsed.get(dir.twin);
+    parsed.set(dir, parseDir(dir, new Set(twin?.messages.map((m) => m.id))));
+  }
   const states = new Map<ThreadDirEntry, SubmittedState>();
   for (const dir of scan.threads) {
     const own = parsed.get(dir) as ParsedDir;

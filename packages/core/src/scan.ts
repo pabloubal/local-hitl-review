@@ -32,11 +32,6 @@ export interface FileEntry {
 export interface MessageEntry extends FileEntry {
   /** Undefined when the file name is not a valid message file name (already reported). */
   parsedName?: ParsedMessageId;
-  /**
-   * Draft only: the submitted twin directory holds a message with the same ID. The draft
-   * file is a leftover of an interrupted submitRound, the same message, not a new one.
-   */
-  submittedCopy: boolean;
 }
 
 export interface RecordEntry extends FileEntry {
@@ -106,6 +101,15 @@ function symlink(rel: string): Diagnostic {
   };
 }
 
+function notAFile(rel: string): Diagnostic {
+  return {
+    severity: 'error',
+    code: DiagnosticCode.UnreadableFile,
+    path: rel,
+    message: 'cannot read file (not a regular file)',
+  };
+}
+
 type Kind = 'dir' | 'file' | 'symlink' | 'other';
 
 interface Listed {
@@ -138,15 +142,14 @@ async function list(root: string, rel: string, problems: Diagnostic[]): Promise<
 
 /**
  * The `*.md` entries of a directory: regular files and directories (reading a directory
- * reports UNREADABLE_FILE); symlinks are reported and dropped, other types ignored.
+ * reports UNREADABLE_FILE). Symlinks are reported as SYMLINK and other types (FIFOs,
+ * sockets) as UNREADABLE_FILE without being opened; both are dropped.
  */
 function mdEntries(entries: Listed[], rel: string, problems: Diagnostic[]): Listed[] {
   return entries.filter((e) => {
     if (!e.name.endsWith('.md')) return false;
-    if (e.kind === 'symlink') {
-      problems.push(symlink(`${rel}/${e.name}`));
-      return false;
-    }
+    if (e.kind === 'symlink') problems.push(symlink(`${rel}/${e.name}`));
+    if (e.kind === 'other') problems.push(notAFile(`${rel}/${e.name}`));
     return e.kind === 'file' || e.kind === 'dir';
   });
 }
@@ -215,11 +218,13 @@ async function threadDir(
   const { id, rel, draft, problems } = listed;
   const validId = parseId(id) !== undefined;
   if (!validId) problems.push(invalidName(rel, 'thread directory'));
-  const md = mdEntries(listed.entries, rel, problems);
-  const twinNames = new Set(
-    (submittedTwin?.entries ?? []).filter((e) => e.name !== THREAD_FILE).map((e) => e.name),
+  // Next to a submitted twin, a draft thread.md is a leftover: ignored whatever its type.
+  const md = mdEntries(
+    listed.entries.filter((e) => submittedTwin === undefined || e.name !== THREAD_FILE),
+    rel,
+    problems,
   );
-  const readThreadMd = submittedTwin === undefined && md.some((e) => e.name === THREAD_FILE);
+  const readThreadMd = md.some((e) => e.name === THREAD_FILE);
 
   const [threadMd, messages] = await Promise.all([
     readThreadMd ? readEntry(root, rel, THREAD_FILE, problems) : undefined,
@@ -232,14 +237,14 @@ async function threadDir(
           if (!parsedName) local.push(invalidName(`${rel}/${e.name}`, 'message file'));
           const file = await readEntry(root, rel, e.name, local);
           problems.push(...local);
-          const entry: MessageEntry = { ...file, submittedCopy: twinNames.has(e.name) };
+          const entry: MessageEntry = { ...file };
           if (parsedName) entry.parsedName = parsedName;
           return entry;
         }),
     ),
   ]);
 
-  // A symlinked thread.md is already reported as SYMLINK; it is not also missing.
+  // A thread.md that is a symlink or not a file is already reported; it is not also missing.
   if (submittedTwin === undefined && !listed.entries.some((e) => e.name === THREAD_FILE)) {
     problems.push({
       severity: 'error',
