@@ -107,26 +107,15 @@ async function resolveCommit(env: CaptureEnv, rev: string): Promise<string> {
   return out.trim();
 }
 
-/** Object type of `commit:path`, or undefined when the path is absent there. */
-async function objectAt(
-  env: CaptureEnv,
-  commit: string,
-  file: string,
-): Promise<{ id: string; type: string } | undefined> {
-  const id = await orUndefined(
-    runGit(env.gitPath, env.root, ['rev-parse', '--verify', '-q', `${commit}:${file}`]),
-  );
-  if (id === undefined) return undefined;
-  const type = (await runGit(env.gitPath, env.root, ['cat-file', '-t', id.trim()])).trim();
-  return { id: id.trim(), type };
-}
-
 async function requireBlobAt(env: CaptureEnv, commit: string, file: string): Promise<string> {
-  const obj = await objectAt(env, commit, file);
-  if (obj === undefined) throw invalid(`${file} does not exist at ${commit}`);
-  // A directory is a tree and a submodule a commit.
-  if (obj.type !== 'blob') throw invalid(`${file} is not a file at ${commit}`);
-  return obj.id;
+  const out = await runGit(env.gitPath, env.root, ['ls-tree', commit, '--', file]);
+  const m = /^(\d+) (\w+) ([0-9a-f]+)\t/.exec(out);
+  if (!m) throw invalid(`${file} does not exist at ${commit}`);
+  // 040000 is a directory and 160000 a submodule; only regular files and symlinks are blobs.
+  if (!['100644', '100755', '120000'].includes(m[1]!)) {
+    throw invalid(`${file} is not a file at ${commit}`);
+  }
+  return m[3]!;
 }
 
 async function requireFileOnDisk(env: CaptureEnv, file: string): Promise<void> {

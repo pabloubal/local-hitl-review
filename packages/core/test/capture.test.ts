@@ -271,4 +271,40 @@ describe('captureAnchor', () => {
       }
     });
   });
+
+  it('rejects an old-side path that is a submodule at the commit', async () => {
+    const sub = await createTempRepo();
+    try {
+      await sub.write('f.txt', 'x\n');
+      await sub.git('add', '.');
+      await sub.git('commit', '-q', '-m', 'sub');
+      await withRepo(async (repo, env) => {
+        await repo.git(
+          '-c',
+          'protocol.file.allow=always',
+          'submodule',
+          'add',
+          '-q',
+          sub.root,
+          'vendor/sub',
+        );
+        await repo.git('commit', '-q', '-m', 'add submodule');
+        const base = (await repo.git('rev-parse', 'HEAD')).trim();
+        for (const kind of ['file', 'line'] as const) {
+          await assert.rejects(
+            captureAnchor(env, {
+              path: 'vendor/sub',
+              kind,
+              side: 'old',
+              baseCommit: base,
+              startLine: 1,
+            }),
+            invalid,
+          );
+        }
+      });
+    } finally {
+      await sub.cleanup();
+    }
+  });
 });
