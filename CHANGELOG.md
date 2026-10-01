@@ -1,3 +1,10 @@
+# [0.20.0](https://github.com/pabloubal/local-hitl-review/compare/v0.19.0...v0.20.0) (2026-10-01)
+
+
+### Features
+
+* **core:** load the tree into a snapshot with derived values and inbox ([#75](https://github.com/pabloubal/local-hitl-review/issues/75)) ([ce5e7e7](https://github.com/pabloubal/local-hitl-review/commit/ce5e7e76facc8c64976418d8601d872003e38783)), closes [#68](https://github.com/pabloubal/local-hitl-review/issues/68) [#68](https://github.com/pabloubal/local-hitl-review/issues/68) [#68](https://github.com/pabloubal/local-hitl-review/issues/68) [#68](https://github.com/pabloubal/local-hitl-review/issues/68) [#68](https://github.com/pabloubal/local-hitl-review/issues/68)
+
 # [0.19.0](https://github.com/pabloubal/local-hitl-review/compare/v0.18.1...v0.19.0) (2026-10-01)
 
 
