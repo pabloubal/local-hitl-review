@@ -1,5 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
+import type { FileHandle } from 'node:fs/promises';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
 import { serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
@@ -38,15 +40,15 @@ export interface StatusChangeResult {
   changed: boolean;
 }
 
-const MAX_ATTEMPTS = 10;
+export const MAX_ATTEMPTS = 10;
 const SEVERITIES: readonly string[] = ['critical', 'high', 'medium', 'low'];
 const STATUSES: readonly string[] = ['open', 'resolved'];
 
-function invalid(message: string): LhrError {
+export function invalid(message: string): LhrError {
   return new LhrError('INVALID_INPUT', message);
 }
 
-function validateAuthor(author: Author): void {
+export function validateAuthor(author: Author): void {
   if (author.kind !== 'human' && author.kind !== 'agent') {
     throw invalid(`author.kind must be "human" or "agent": ${String(author.kind)}`);
   }
@@ -56,15 +58,16 @@ function validateAuthor(author: Author): void {
 }
 
 /** Fields of a message file, in the order the format lists them. */
-interface MessageFields {
+export interface MessageFields {
   author: Author;
   body: string;
+  round?: string;
   status?: ThreadStatus;
   severity?: Severity;
   clientId?: string;
 }
 
-function validateMessage(m: MessageFields): void {
+export function validateMessage(m: MessageFields): void {
   validateAuthor(m.author);
   if (m.status !== undefined && !STATUSES.includes(m.status)) {
     throw invalid(`status must be "open" or "resolved": ${String(m.status)}`);
@@ -80,13 +83,14 @@ function validateMessage(m: MessageFields): void {
   }
 }
 
-function messageText(m: MessageFields): string {
+export function messageText(m: MessageFields): string {
   const data: FrontmatterData = {
     'author.kind': m.author.kind,
     'author.name': m.author.name,
   };
   if (m.author.session !== undefined) data['author.session'] = m.author.session;
   if (m.author.githubLogin !== undefined) data['author.githubLogin'] = m.author.githubLogin;
+  if (m.round !== undefined) data.round = m.round;
   if (m.status !== undefined) data.status = m.status;
   if (m.severity !== undefined) data.severity = m.severity;
   if (m.clientId !== undefined) data.clientId = m.clientId;
@@ -95,7 +99,7 @@ function messageText(m: MessageFields): string {
 }
 
 /** Creates `file` exclusively. Returns false when it already exists. */
-async function createExclusive(file: string, content: string): Promise<boolean> {
+export async function createExclusive(file: string, content: string): Promise<boolean> {
   try {
     await writeFile(file, content, { flag: 'wx' });
     return true;
@@ -105,8 +109,133 @@ async function createExclusive(file: string, content: string): Promise<boolean> 
   }
 }
 
+/** `.lhr/drafts/.tmp/`, where atomic writes stage their content. Never read as tree content. */
+export function tempDir(tree: Tree): string {
+  return path.join(tree.root, '.lhr', 'drafts', '.tmp');
+}
+
+/** Creates `.lhr/drafts/.tmp/` and `.lhr/drafts/.gitignore` (`*`) if missing. */
+export async function ensureDraftsRoot(tree: Tree): Promise<void> {
+  await mkdir(tempDir(tree), { recursive: true });
+  await createExclusive(path.join(tree.root, '.lhr', 'drafts', '.gitignore'), '*\n');
+}
+
+/** Writes `content` to a fsynced temp file and returns its path. */
+async function writeTemp(tree: Tree, content: string): Promise<string> {
+  await ensureDraftsRoot(tree);
+  const tmp = path.join(tempDir(tree), randomUUID());
+  const handle = await open(tmp, 'wx');
+  try {
+    await handle.writeFile(content);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  return tmp;
+}
+
+async function discardTemp(tmp: string): Promise<void> {
+  try {
+    await unlink(tmp);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}
+
+/** Internal test seam for file system calls. Not part of the public API. */
+export const seams = {
+  link,
+  writeContent: (handle: FileHandle, content: string): Promise<void> => handle.writeFile(content),
+};
+
+/** fsyncs a directory so a new or renamed entry survives power loss; best-effort on platforms without it. */
+async function fsyncDir(dir: string): Promise<void> {
+  let handle;
+  try {
+    handle = await open(dir, 'r');
+    await handle.sync();
+  } catch (err) {
+    if (!['EISDIR', 'EPERM', 'EINVAL', 'ENOTSUP', 'EACCES'].includes(errCode(err) ?? '')) throw err;
+  } finally {
+    await handle?.close();
+  }
+}
+
+function errCode(err: unknown): string | undefined {
+  return (err as NodeJS.ErrnoException).code;
+}
+
+/** Runs a write path, turning any unexpected (non-LhrError) failure into an LhrError. */
+export async function guardFs<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof LhrError) throw err;
+    // No existing error code covers file system failures; INVALID_INPUT is a placeholder.
+    throw new LhrError('INVALID_INPUT', `file system error: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Creates `file` atomically and exclusively: the content is written and fsynced to a
+ * temp file, then hard-linked into place, so `file` is either absent or complete. Returns
+ * false when it already exists. The directory of `file` must exist.
+ *
+ * On file systems without hard links (EPERM, ENOTSUP, ENOSYS, EXDEV) it falls back to an
+ * exclusive create plus write and fsync. Exclusivity is kept; atomicity is best-effort there.
+ */
+export async function createAtomic(tree: Tree, file: string, content: string): Promise<boolean> {
+  const tmp = await writeTemp(tree, content);
+  try {
+    try {
+      await seams.link(tmp, file);
+    } catch (err) {
+      const code = errCode(err);
+      if (code === 'EEXIST') return false;
+      if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'ENOSYS' && code !== 'EXDEV') {
+        throw err;
+      }
+      let handle: FileHandle | undefined;
+      try {
+        handle = await open(file, 'wx');
+      } catch (openErr) {
+        if (errCode(openErr) === 'EEXIST') return false;
+        throw openErr;
+      }
+      try {
+        await seams.writeContent(handle, content);
+        await handle.sync();
+      } catch (writeErr) {
+        // Do not leave a partial target behind (best-effort).
+        await handle.close().catch(() => undefined);
+        handle = undefined;
+        await unlink(file).catch(() => undefined);
+        throw writeErr;
+      } finally {
+        await handle?.close();
+      }
+    }
+    await fsyncDir(path.dirname(file));
+    return true;
+  } finally {
+    await discardTemp(tmp);
+  }
+}
+
+/** Replaces `file` atomically (temp file, then rename over it). */
+export async function replaceAtomic(tree: Tree, file: string, content: string): Promise<void> {
+  const tmp = await writeTemp(tree, content);
+  try {
+    await rename(tmp, file);
+  } catch (err) {
+    await discardTemp(tmp);
+    throw err;
+  }
+  await fsyncDir(path.dirname(file));
+}
+
 /** Writes a new message file into `dir` and returns its message ID. */
-async function writeMessage(
+export async function writeMessage(
   tree: Tree,
   dir: string,
   kind: Author['kind'],
@@ -114,12 +243,12 @@ async function writeMessage(
 ): Promise<string> {
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     const name = tree.newMessageFileName(kind);
-    if (await createExclusive(path.join(dir, name), text)) return name.slice(0, -3);
+    if (await createAtomic(tree, path.join(dir, name), text)) return name.slice(0, -3);
   }
   throw new LhrError('GIT_FAILED', `could not find an unused message file name in ${dir}`);
 }
 
-async function requireThread(tree: Tree, threadId: string): Promise<ThreadView> {
+export async function requireThread(tree: Tree, threadId: string): Promise<ThreadView> {
   const thread = (await tree.load()).thread(threadId);
   if (!thread) throw new LhrError('THREAD_NOT_FOUND', `no thread ${threadId}`);
   return thread;
@@ -180,7 +309,7 @@ export async function createThread(
       if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
       throw err;
     }
-    if (!(await createExclusive(path.join(dir, 'thread.md'), text))) continue;
+    if (!(await createAtomic(tree, path.join(dir, 'thread.md'), text))) continue;
     // A crash between thread.md and the first message leaves a thread with no
     // messages, which check() reports as EmptyThread. The spec defines no
     // crash-safe ordering for immediate writes.
