@@ -1,0 +1,5 @@
+{
+  "extends": "./packages/vscode/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "./packages/vscode/src" },
+  "include": ["packages/vscode/src/**/*"]
+}
