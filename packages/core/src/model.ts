@@ -138,6 +138,7 @@ export const DiagnosticCode = {
   EmptyThread: 'EMPTY_THREAD',
   EmptyBody: 'EMPTY_BODY',
   UnreadableFile: 'UNREADABLE_FILE',
+  Symlink: 'SYMLINK',
   FormatMissing: 'FORMAT_MISSING',
   FormatVersion: 'FORMAT_VERSION',
   UnknownKey: 'UNKNOWN_KEY',

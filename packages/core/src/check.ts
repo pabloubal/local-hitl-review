@@ -1,18 +1,15 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
-import * as path from 'node:path';
 import { LhrError, type Diagnostic } from './errors.js';
 import { checkFormat } from './format.js';
 import { parseFrontmatter, type FrontmatterData } from './frontmatter.js';
-import { parseId, parseMessageFileName } from './ids.js';
 import { DiagnosticCode } from './model.js';
-import { extractSnapshot } from './read.js';
+import { extractSnapshot, parseThreads } from './read.js';
+import { cmp, emptyThread, scanTree, type FileEntry } from './scan.js';
 import { loadSchemas, unknownKeys, validate, type SchemaKind } from './schemaCheck.js';
 
 export interface CheckResult {
   diagnostics: Diagnostic[];
 }
 
-const THREAD_FILE = 'thread.md';
 const LINE_KEYS = [
   'anchor.blob',
   'anchor.startLine',
@@ -22,12 +19,6 @@ const LINE_KEYS = [
 ] as const;
 const ID_RE = /^[0-9]{8}T[0-9]{6}Z-[a-z2-7]{6}$/;
 
-interface Entry {
-  name: string;
-  /** A directory, or a symlink to one. */
-  isDir: boolean;
-}
-
 interface ParsedFile {
   data: FrontmatterData;
   body: string;
@@ -36,8 +27,6 @@ interface ParsedFile {
 class Checker {
   readonly out: Diagnostic[] = [];
   private readonly schemas = loadSchemas();
-
-  constructor(private readonly root: string) {}
 
   add(
     severity: 'error' | 'warning',
@@ -55,42 +44,10 @@ class Checker {
     this.add('error', code, file, message);
   }
 
-  async list(rel: string): Promise<Entry[]> {
-    try {
-      const entries = await readdir(path.join(this.root, rel), { withFileTypes: true });
-      const out: Entry[] = [];
-      for (const e of entries) {
-        let isDir = e.isDirectory();
-        if (e.isSymbolicLink()) {
-          isDir = await stat(path.join(this.root, rel, e.name)).then(
-            (st) => st.isDirectory(),
-            () => false,
-          );
-        }
-        out.push({ name: e.name, isDir });
-      }
-      return out.sort((a, b) => cmp(a.name, b.name));
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') this.unreadable(rel, code);
-      return [];
-    }
-  }
-
-  private unreadable(rel: string, code: string | undefined): void {
-    this.error(DiagnosticCode.UnreadableFile, rel, `cannot read file (${code ?? 'unknown error'})`);
-  }
-
-  /** Reads, parses and schema-validates one file. Returns undefined when it can't be used further. */
-  async file(rel: string, kind: SchemaKind): Promise<ParsedFile | undefined> {
-    let text: string;
-    try {
-      text = await readFile(path.join(this.root, rel), 'utf8');
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      this.unreadable(rel, code);
-      return undefined;
-    }
+  /** Parses and schema-validates one file read by the walk; undefined when unusable. */
+  file(entry: FileEntry, kind: SchemaKind): ParsedFile | undefined {
+    const { text, rel } = entry;
+    if (text === undefined) return undefined;
     const parsed = parseFrontmatter(text, rel);
     if (parsed.diagnostics.length > 0) {
       this.out.push(...parsed.diagnostics);
@@ -276,85 +233,42 @@ function fencedBlocks(body: string): FencedBlock[] | undefined {
   return blocks;
 }
 
-interface Group {
-  id: string;
-  rel: string;
-  submitted: boolean;
-  /** `*.md` entries, whatever their type; non-files are reported when read. */
-  files: Entry[];
-}
-
 /**
  * Validates the whole tree, drafts included, against file-format-v2 § Validation.
- * Content problems become diagnostics; only operational failures throw.
+ * Walks the tree with the same scan as load() (scan.ts) and adds the schema and
+ * cross-file rules on top. Content problems become diagnostics; only operational
+ * failures throw.
  */
 export async function checkTree(root: string): Promise<CheckResult> {
-  const c = new Checker(root);
+  const c = new Checker();
 
   const format = await formatDiagnostic(root);
   if (format) c.out.push(format);
 
-  const [threadDirs, draftDirs, roundEntries, pushEntries] = await Promise.all([
-    c.list('.lhr/threads'),
-    c.list('.lhr/drafts/threads'),
-    c.list('.lhr/rounds'),
-    c.list('.lhr/pushes'),
-  ]);
-  // A `*.md` directory is not a valid file either; reading it reports UNREADABLE_FILE.
-  const mdEntries = (entries: Entry[]): Entry[] => entries.filter((e) => e.name.endsWith('.md'));
+  const scan = await scanTree(root, { pushes: true });
+  const { states } = parseThreads(scan);
+  c.out.push(...scan.problems, ...scan.recordProblems);
 
-  const groups: Group[] = [];
-  for (const [entries, base, submitted] of [
-    [threadDirs, '.lhr/threads', true],
-    [draftDirs, '.lhr/drafts/threads', false],
-  ] as const) {
-    for (const e of entries.filter((x) => x.isDir)) {
-      const rel = `${base}/${e.name}`;
-      groups.push({ id: e.name, rel, submitted, files: mdEntries(await c.list(rel)) });
-    }
-  }
-
-  const roundIds = new Set(
-    mdEntries(roundEntries)
-      .map((e) => e.name.slice(0, -3))
-      .filter((id) => parseId(id) !== undefined),
-  );
-  const submittedIds = new Set(groups.filter((g) => g.submitted).map((g) => g.id));
-  const draftsWithMessages = new Set(
-    groups
-      .filter((g) => !g.submitted && g.files.some((f) => f.name !== THREAD_FILE))
-      .map((g) => g.id),
-  );
+  const roundIds = new Set(scan.rounds.filter((e) => e.parsedId).map((e) => e.name.slice(0, -3)));
+  const submittedIds = new Set(scan.threads.map((d) => d.id));
   const messageIds = new Set<string>();
   const clientUses: { thread: string; clientId: string; rel: string; draft: boolean }[] = [];
 
-  for (const g of groups) {
-    if (parseId(g.id) === undefined) {
-      c.error(DiagnosticCode.InvalidFileName, g.rel, 'thread directory name is not a valid ID');
+  for (const dir of [...scan.threads, ...scan.drafts]) {
+    c.out.push(...dir.problems);
+    if (states.get(dir) === 'empty') c.out.push(emptyThread(dir));
+    if (dir.threadMd) {
+      const f = c.file(dir.threadMd, 'thread');
+      if (f) c.checkThreadMd(dir.threadMd.rel, f);
     }
-    const messages = g.files.filter((f) => f.name !== THREAD_FILE);
-    const hasThreadMd = g.files.some((f) => f.name === THREAD_FILE);
-    if (hasThreadMd) {
-      const rel = `${g.rel}/${THREAD_FILE}`;
-      const f = await c.file(rel, 'thread');
-      if (f) c.checkThreadMd(rel, f);
-    } else if (g.submitted || !submittedIds.has(g.id)) {
-      c.error(DiagnosticCode.MissingThreadMd, g.rel, `thread directory has no ${THREAD_FILE}`);
-    }
-    if (g.submitted && messages.length === 0 && !draftsWithMessages.has(g.id)) {
-      c.error(DiagnosticCode.EmptyThread, g.rel, 'submitted thread has no messages');
-    }
-    for (const e of messages) {
-      const rel = `${g.rel}/${e.name}`;
-      const id = e.name.slice(0, -3);
-      if (g.submitted) messageIds.add(id);
-      const name = parseMessageFileName(e.name);
-      if (!name)
-        c.error(DiagnosticCode.InvalidFileName, rel, 'message file name is not a valid ID');
-      const f = await c.file(rel, 'message');
+    for (const e of dir.messages) {
+      const { rel } = e;
+      if (!dir.draft) messageIds.add(e.name.slice(0, -3));
+      const f = c.file(e, 'message');
       if (!f) continue;
       const { data } = f;
       const kind = data['author.kind'];
+      const name = e.parsedName;
       if (name && (kind === 'human' || kind === 'agent') && kind !== name.kind) {
         c.error(
           DiagnosticCode.AuthorKindMismatch,
@@ -381,8 +295,9 @@ export async function checkTree(root: string): Promise<CheckResult> {
       if (typeof round === 'string' && ID_RE.test(round) && !roundIds.has(round)) {
         c.error(DiagnosticCode.UnknownRound, rel, `round "${round}" does not exist`);
       }
-      if (typeof data.clientId === 'string') {
-        clientUses.push({ thread: g.id, clientId: data.clientId, rel, draft: !g.submitted });
+      // A draft copy of a submitted message is that same message, not a second use.
+      if (typeof data.clientId === 'string' && !e.submittedCopy) {
+        clientUses.push({ thread: dir.id, clientId: data.clientId, rel, draft: dir.draft });
       }
     }
   }
@@ -408,21 +323,11 @@ export async function checkTree(root: string): Promise<CheckResult> {
     }
   }
 
-  for (const e of mdEntries(roundEntries)) {
-    const rel = `.lhr/rounds/${e.name}`;
-    if (parseId(e.name.slice(0, -3)) === undefined) {
-      c.error(DiagnosticCode.InvalidFileName, rel, 'round file name is not a valid ID');
-    }
-    await c.file(rel, 'round');
-  }
+  for (const e of scan.rounds) c.file(e, 'round');
 
-  for (const e of mdEntries(pushEntries)) {
-    const rel = `.lhr/pushes/${e.name}`;
-    if (parseId(e.name.slice(0, -3)) === undefined) {
-      c.error(DiagnosticCode.InvalidFileName, rel, 'push file name is not a valid ID');
-    }
-    const f = await c.file(rel, 'push');
-    if (f) c.checkPushBody(rel, f, submittedIds, messageIds);
+  for (const e of scan.pushes) {
+    const f = c.file(e, 'push');
+    if (f) c.checkPushBody(e.rel, f, submittedIds, messageIds);
   }
 
   return { diagnostics: finish(c.out) };
@@ -443,8 +348,4 @@ function finish(all: Diagnostic[]): Diagnostic[] {
       cmp(a.code, b.code) ||
       cmp(a.message, b.message),
   );
-}
-
-function cmp(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }

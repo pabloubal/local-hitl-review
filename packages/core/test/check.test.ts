@@ -610,7 +610,7 @@ describe('check() and load() agree', () => {
     assert.deepEqual(r.load, r.check);
   });
 
-  it('do not flag a leftover draft copy of a submitted message as a duplicate clientId', async () => {
+  it('do not flag a leftover draft copy of a submitted message as a duplicate', async () => {
     const r = await both(async (repo) => {
       await repo.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
       await repo.write(`.lhr/drafts/threads/${T1}/${M1}.md`, msg('clientId: abc\n'));

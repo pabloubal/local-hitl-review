@@ -1,8 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
-import * as path from 'node:path';
 import type { Diagnostic } from './errors.js';
 import { parseFrontmatter, type FrontmatterData } from './frontmatter.js';
-import { parseId, parseMessageFileName, type AuthorKind } from './ids.js';
+import { parseId, type AuthorKind } from './ids.js';
 import {
   DiagnosticCode,
   type Anchor,
@@ -15,6 +13,17 @@ import {
   type TreeRecords,
   type Verdict,
 } from './model.js';
+import {
+  emptyThread,
+  scanTree,
+  submittedState,
+  type FileEntry,
+  type MessageEntry,
+  type RecordEntry,
+  type SubmittedState,
+  type ThreadDirEntry,
+  type TreeScan,
+} from './scan.js';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 const STATUSES = ['open', 'resolved'] as const;
@@ -22,8 +31,6 @@ const VERDICTS = ['approve', 'comment', 'request-changes'] as const;
 const SIDES = ['new', 'old'] as const;
 const ANCHOR_KINDS = ['line', 'file'] as const;
 const AUTHOR_KINDS = ['human', 'agent'] as const;
-
-const THREAD_FILE = 'thread.md';
 
 /** Validates keys of one parsed frontmatter block, collecting diagnostics. */
 class Fields {
@@ -174,75 +181,23 @@ export function extractSnapshot(body: string): string | undefined {
   return undefined;
 }
 
-function unreadable(rel: string, err: unknown): Diagnostic {
-  const code = (err as NodeJS.ErrnoException).code ?? 'unknown error';
-  return {
-    severity: 'error',
-    code: DiagnosticCode.UnreadableFile,
-    path: rel,
-    message: `cannot read file (${code})`,
-  };
-}
-
-/** Tree root plus the sink that diagnostics are collected into. */
-interface ReadContext {
-  root: string;
+/** A parse result: the value when the file is usable, plus every problem found. */
+export interface Parsed<T> {
+  value?: T;
   problems: Diagnostic[];
 }
 
-/** File text, or undefined if absent (silently) or unreadable (with a diagnostic). */
-async function readText(ctx: ReadContext, rel: string): Promise<string | undefined> {
-  try {
-    return await readFile(path.join(ctx.root, rel), 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') ctx.problems.push(unreadable(rel, err));
-    return undefined;
-  }
-}
-
-interface Entry {
-  name: string;
-  isDir: boolean;
-  isFile: boolean;
-}
-
-async function listDir(ctx: ReadContext, rel: string): Promise<Entry[]> {
-  try {
-    const entries = await readdir(path.join(ctx.root, rel), { withFileTypes: true });
-    return entries
-      .map((e) => ({ name: e.name, isDir: e.isDirectory(), isFile: e.isFile() }))
-      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'ENOTDIR') ctx.problems.push(unreadable(rel, err));
-    return [];
-  }
-}
-
-function invalidName(rel: string, what: string): Diagnostic {
-  return {
-    severity: 'error',
-    code: DiagnosticCode.InvalidFileName,
-    path: rel,
-    message: `${what} name is not a valid ID`,
-  };
-}
-
-interface ThreadMd {
+export interface ThreadMd {
   anchor: Anchor;
   snapshot?: string;
   severity?: Severity;
 }
 
-async function readThreadMd(ctx: ReadContext, rel: string): Promise<ThreadMd | undefined> {
-  const text = await readText(ctx, rel);
-  if (text === undefined) return undefined;
-  const parsed = parseFrontmatter(text, rel);
-  if (parsed.diagnostics.length > 0) {
-    ctx.problems.push(...parsed.diagnostics);
-    return undefined;
-  }
-  const f = new Fields(parsed.data, rel);
+export function parseThreadMd(file: FileEntry): Parsed<ThreadMd> {
+  if (file.text === undefined) return { problems: [] };
+  const parsed = parseFrontmatter(file.text, file.rel);
+  if (parsed.diagnostics.length > 0) return { problems: parsed.diagnostics };
+  const f = new Fields(parsed.data, file.rel);
   const anchor = parseAnchor(f);
   const severity = f.enum('severity', SEVERITIES, false);
   let snapshot: string | undefined;
@@ -255,33 +210,19 @@ async function readThreadMd(ctx: ReadContext, rel: string): Promise<ThreadMd | u
       );
     }
   }
-  ctx.problems.push(...f.problems);
-  if (!f.ok || anchor === undefined) return undefined;
-  const out: ThreadMd = { anchor };
-  if (snapshot !== undefined) out.snapshot = snapshot;
-  if (severity !== undefined) out.severity = severity;
-  return out;
+  if (!f.ok || anchor === undefined) return { problems: f.problems };
+  const value: ThreadMd = { anchor };
+  if (snapshot !== undefined) value.snapshot = snapshot;
+  if (severity !== undefined) value.severity = severity;
+  return { value, problems: [] };
 }
 
-async function readMessage(
-  ctx: ReadContext,
-  rel: string,
-  name: string,
-  isDraft: boolean,
-): Promise<MessageView | undefined> {
-  const parsedName = parseMessageFileName(name);
-  if (!parsedName) {
-    ctx.problems.push(invalidName(rel, 'message file'));
-    return undefined;
-  }
-  const text = await readText(ctx, rel);
-  if (text === undefined) return undefined;
-  const parsed = parseFrontmatter(text, rel);
-  if (parsed.diagnostics.length > 0) {
-    ctx.problems.push(...parsed.diagnostics);
-    return undefined;
-  }
-  const f = new Fields(parsed.data, rel);
+export function parseMessage(file: MessageEntry, isDraft: boolean): Parsed<MessageView> {
+  const parsedName = file.parsedName;
+  if (!parsedName || file.text === undefined) return { problems: [] };
+  const parsed = parseFrontmatter(file.text, file.rel);
+  if (parsed.diagnostics.length > 0) return { problems: parsed.diagnostics };
+  const f = new Fields(parsed.data, file.rel);
   const kind = f.enum('author.kind', AUTHOR_KINDS, true);
   if (kind !== undefined && kind !== parsedName.kind) {
     f.fail(
@@ -297,88 +238,92 @@ async function readMessage(
   if (f.ok && parsed.body.trim() === '' && status === undefined && severity === undefined) {
     f.fail(DiagnosticCode.EmptyBody, 'message body is empty and neither status nor severity is set');
   }
-  ctx.problems.push(...f.problems);
-  if (!f.ok || author === undefined) return undefined;
-  const msg: MessageView = {
+  if (!f.ok || author === undefined) return { problems: f.problems };
+  const value: MessageView = {
     id: parsedName.id,
     createdAt: parsedName.timestamp,
     author,
     body: parsed.body,
     isDraft,
   };
-  if (round !== undefined) msg.round = round;
-  if (status !== undefined) msg.status = status;
-  if (severity !== undefined) msg.severity = severity;
-  if (clientId !== undefined) msg.clientId = clientId;
-  return msg;
+  if (round !== undefined) value.round = round;
+  if (status !== undefined) value.status = status;
+  if (severity !== undefined) value.severity = severity;
+  if (clientId !== undefined) value.clientId = clientId;
+  return { value, problems: [] };
 }
 
-async function readMessages(
-  ctx: ReadContext,
-  dirRel: string,
-  isDraft: boolean,
-): Promise<MessageView[]> {
-  const files = (await listDir(ctx, dirRel)).filter(
-    (e) => (e.isFile || e.isDir) && e.name.endsWith('.md') && e.name !== THREAD_FILE,
-  );
-  const results = await Promise.all(
-    files.map(async (e) => {
-      const local: Diagnostic[] = [];
-      const message = await readMessage({ ...ctx, problems: local }, `${dirRel}/${e.name}`, e.name, isDraft);
-      return { message, local };
-    }),
-  );
-  const messages: MessageView[] = [];
-  for (const r of results) {
-    ctx.problems.push(...r.local);
-    if (r.message) messages.push(r.message);
+function parseRound(file: RecordEntry): Parsed<RoundView> {
+  const parsedId = file.parsedId;
+  if (!parsedId || file.text === undefined) return { problems: [] };
+  const parsed = parseFrontmatter(file.text, file.rel);
+  if (parsed.diagnostics.length > 0) return { problems: parsed.diagnostics };
+  const f = new Fields(parsed.data, file.rel);
+  const verdict: Verdict | undefined = f.enum('verdict', VERDICTS, true);
+  const kind = f.enum('author.kind', ['human'] as const, true);
+  const author = parseAuthor(f, kind);
+  if (!f.ok || verdict === undefined || author === undefined) return { problems: f.problems };
+  return {
+    value: {
+      id: file.name.slice(0, -3),
+      createdAt: parsedId.timestamp,
+      verdict,
+      author,
+      body: parsed.body,
+    },
+    problems: [],
+  };
+}
+
+/** One thread directory parsed: its thread.md and its valid messages, sorted by ID. */
+export interface ParsedDir {
+  meta?: ThreadMd;
+  /** Valid messages, leaving out draft copies of submitted messages. */
+  messages: MessageView[];
+  problems: Diagnostic[];
+}
+
+/** Parses every file of a thread directory, reporting all broken ones. */
+export function parseDir(dir: ThreadDirEntry): ParsedDir {
+  const problems: Diagnostic[] = [];
+  let meta: ThreadMd | undefined;
+  if (dir.threadMd) {
+    const r = parseThreadMd(dir.threadMd);
+    problems.push(...r.problems);
+    meta = r.value;
   }
-  return messages.sort(byId);
+  const messages: MessageView[] = [];
+  for (const file of dir.messages) {
+    const r = parseMessage(file, dir.draft);
+    problems.push(...r.problems);
+    if (r.value && !file.submittedCopy) messages.push(r.value);
+  }
+  const out: ParsedDir = { messages: messages.sort(byId), problems };
+  if (meta) out.meta = meta;
+  return out;
+}
+
+/** Parses every thread directory and decides what each submitted one amounts to. */
+export function parseThreads(scan: TreeScan): {
+  parsed: Map<ThreadDirEntry, ParsedDir>;
+  states: Map<ThreadDirEntry, SubmittedState>;
+} {
+  const parsed = new Map<ThreadDirEntry, ParsedDir>();
+  for (const dir of [...scan.threads, ...scan.drafts]) parsed.set(dir, parseDir(dir));
+  const states = new Map<ThreadDirEntry, SubmittedState>();
+  for (const dir of scan.threads) {
+    const own = parsed.get(dir) as ParsedDir;
+    const draft = dir.twin && parsed.get(dir.twin);
+    states.set(
+      dir,
+      submittedState(dir, own.meta !== undefined, own.messages.length, draft?.messages.length ?? 0),
+    );
+  }
+  return { parsed, states };
 }
 
 function byId(a: { id: string }, b: { id: string }): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
-
-interface ThreadDir {
-  id: string;
-  rel: string;
-  problems: Diagnostic[];
-}
-
-async function listThreadDirs(ctx: ReadContext, base: string): Promise<ThreadDir[]> {
-  const dirs = (await listDir(ctx, base)).filter((e) => e.isDir);
-  return dirs.map((e) => ({ id: e.name, rel: `${base}/${e.name}`, problems: [] }));
-}
-
-interface SubmittedResult {
-  dir: ThreadDir;
-  thread?: ThreadRecord;
-  /** valid thread.md but no valid messages; EMPTY_THREAD unless draft messages rescue it */
-  empty?: ThreadMd;
-  rescued?: boolean;
-}
-
-async function loadSubmitted(root: string, dir: ThreadDir): Promise<SubmittedResult> {
-  const ctx: ReadContext = { root, problems: dir.problems };
-  if (!parseId(dir.id)) {
-    dir.problems.push(invalidName(dir.rel, 'thread directory'));
-    return { dir };
-  }
-  const meta = await readThreadMd(ctx, `${dir.rel}/${THREAD_FILE}`);
-  if (dir.problems.length > 0) return { dir };
-  if (!meta) {
-    dir.problems.push({
-      severity: 'error',
-      code: DiagnosticCode.MissingThreadMd,
-      path: dir.rel,
-      message: `thread directory has no ${THREAD_FILE}`,
-    });
-    return { dir };
-  }
-  const messages = await readMessages(ctx, dir.rel, false);
-  if (messages.length === 0) return { dir, empty: meta };
-  return { dir, thread: record(dir.id, false, meta, messages) };
 }
 
 function record(id: string, isDraft: boolean, meta: ThreadMd, messages: MessageView[]): ThreadRecord {
@@ -394,121 +339,51 @@ function record(id: string, isDraft: boolean, meta: ThreadMd, messages: MessageV
   return t;
 }
 
-async function loadDraft(
-  root: string,
-  dir: ThreadDir,
-  submitted: Map<string, SubmittedResult>,
-): Promise<ThreadRecord | undefined> {
-  const ctx: ReadContext = { root, problems: dir.problems };
-  if (!parseId(dir.id)) {
-    dir.problems.push(invalidName(dir.rel, 'thread directory'));
-    return undefined;
-  }
-  const twin = submitted.get(dir.id);
-  if (twin) {
-    // Submitted thread.md wins; a draft thread.md here is a leftover of an interrupted submit.
-    const messages = await readMessages(ctx, dir.rel, true);
-    if (twin.empty && messages.length > 0) {
-      // Interrupted submit of a draft thread: thread.md was moved, messages were not.
-      twin.rescued = true;
-      return record(dir.id, true, twin.empty, messages);
-    }
-    if (!twin.thread) return undefined;
-    const seen = new Set(twin.thread.messages.map((m) => m.id));
-    const extra = messages.filter((m) => !seen.has(m.id));
-    return { ...twin.thread, messages: [...twin.thread.messages, ...extra].sort(byId) };
-  }
-  const meta = await readThreadMd(ctx, `${dir.rel}/${THREAD_FILE}`);
-  if (dir.problems.length > 0) return undefined;
-  if (!meta) {
-    dir.problems.push({
-      severity: 'error',
-      code: DiagnosticCode.MissingThreadMd,
-      path: dir.rel,
-      message: `draft thread directory has no ${THREAD_FILE} and no submitted thread with this ID`,
-    });
-    return undefined;
-  }
-  const messages = await readMessages(ctx, dir.rel, true);
-  if (messages.length === 0) return undefined;
-  return record(dir.id, true, meta, messages);
-}
-
-interface RoundResult {
-  round?: RoundView;
-  problems: Diagnostic[];
-}
-
-async function loadRound(root: string, name: string): Promise<RoundResult> {
-  const rel = `.lhr/rounds/${name}`;
-  const problems: Diagnostic[] = [];
-  const ctx: ReadContext = { root, problems };
-  const id = name.slice(0, -3);
-  const parsedId = parseId(id);
-  if (!parsedId) {
-    problems.push(invalidName(rel, 'round file'));
-    return { problems };
-  }
-  const text = await readText(ctx, rel);
-  if (text === undefined) return { problems };
-  const parsed = parseFrontmatter(text, rel);
-  if (parsed.diagnostics.length > 0) return { problems: parsed.diagnostics };
-  const f = new Fields(parsed.data, rel);
-  const verdict: Verdict | undefined = f.enum('verdict', VERDICTS, true);
-  const kind = f.enum('author.kind', ['human'] as const, true);
-  const author = parseAuthor(f, kind);
-  if (!f.ok || verdict === undefined || author === undefined) return { problems: f.problems };
-  return {
-    round: { id, createdAt: parsedId.timestamp, verdict, author, body: parsed.body },
-    problems,
-  };
-}
-
 export async function readTree(root: string): Promise<TreeRecords> {
-  const rootProblems: Diagnostic[] = [];
-  const ctx: ReadContext = { root, problems: rootProblems };
-  const [submittedDirs, draftDirs, roundEntries] = await Promise.all([
-    listThreadDirs(ctx, '.lhr/threads'),
-    listThreadDirs(ctx, '.lhr/drafts/threads'),
-    listDir(ctx, '.lhr/rounds'),
-  ]);
-
-  const submittedResults = await Promise.all(submittedDirs.map((d) => loadSubmitted(root, d)));
-  const submitted = new Map(submittedResults.map((r) => [r.dir.id, r]));
-  const draftThreads = await Promise.all(draftDirs.map((d) => loadDraft(root, d, submitted)));
-  const roundResults = await Promise.all(
-    roundEntries.filter((e) => e.isFile && e.name.endsWith('.md')).map((e) => loadRound(root, e.name)),
-  );
-
-  for (const r of submittedResults) {
-    if (r.empty && !r.rescued) {
-      r.dir.problems.push({
-        severity: 'error',
-        code: DiagnosticCode.EmptyThread,
-        path: r.dir.rel,
-        message: 'submitted thread has no valid messages',
-      });
-    }
-  }
-
-  const problems: Diagnostic[] = [
-    ...rootProblems,
-    ...submittedDirs.flatMap((d) => d.problems),
-    ...draftDirs.flatMap((d) => d.problems),
-    ...roundResults.flatMap((r) => r.problems),
-  ];
+  const scan = await scanTree(root);
+  const { parsed, states } = parseThreads(scan);
 
   const threads = new Map<string, ThreadRecord>();
-  for (const r of submittedResults) {
-    if (r.thread) threads.set(r.dir.id, r.thread);
+  const problems: Diagnostic[] = [...scan.problems];
+  for (const dir of scan.threads) {
+    const p = parsed.get(dir) as ParsedDir;
+    problems.push(...dir.problems, ...p.problems);
+    const state = states.get(dir);
+    if (state === 'empty') problems.push(emptyThread(dir));
+    if (state === 'thread' && p.meta) {
+      threads.set(dir.id, record(dir.id, false, p.meta, p.messages));
+    }
   }
-  for (const t of draftThreads) {
-    if (t) threads.set(t.id, t);
+  for (const dir of scan.drafts) {
+    const p = parsed.get(dir) as ParsedDir;
+    problems.push(...dir.problems, ...p.problems);
+    const twin = dir.twin;
+    const twinMeta = twin && parsed.get(twin)?.meta;
+    if (twin && twinMeta) {
+      const state = states.get(twin);
+      if (state === 'rescued') {
+        // Interrupted submit of a draft thread: thread.md was moved, messages were not.
+        threads.set(dir.id, record(dir.id, true, twinMeta, p.messages));
+      } else if (state === 'thread' && p.messages.length > 0) {
+        const own = (parsed.get(twin) as ParsedDir).messages;
+        threads.set(dir.id, record(dir.id, false, twinMeta, [...own, ...p.messages].sort(byId)));
+      }
+    } else if (!twin && dir.validId && p.meta && p.messages.length > 0) {
+      threads.set(dir.id, record(dir.id, true, p.meta, p.messages));
+    }
+  }
+
+  problems.push(...scan.recordProblems);
+  const rounds: RoundView[] = [];
+  for (const file of scan.rounds) {
+    const r = parseRound(file);
+    problems.push(...r.problems);
+    if (r.value) rounds.push(r.value);
   }
 
   return {
     threads: [...threads.values()].sort(byId),
-    rounds: roundResults.flatMap((r) => (r.round ? [r.round] : [])).sort(byId),
+    rounds: rounds.sort(byId),
     problems,
   };
 }

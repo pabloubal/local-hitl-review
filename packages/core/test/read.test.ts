@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { symlink } from 'node:fs/promises';
+import * as path from 'node:path';
 import { readTree } from '../src/read.js';
 import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
 
@@ -396,6 +398,32 @@ describe('readTree', () => {
       assert.deepEqual(
         r.threads.map((t) => t.id),
         [T2],
+      );
+    });
+  });
+
+  it('reports symlinks instead of following or dropping them', async () => {
+    await withRepo(async (repo) => {
+      await repo.write(`outside/${T2}/thread.md`, FILE_THREAD);
+      await repo.write(`outside/${T2}/${M1}.md`, msg());
+      await repo.write(`.lhr/threads/${T1}/thread.md`, FILE_THREAD);
+      await repo.write(`.lhr/threads/${T1}/${M1}.md`, msg());
+      await symlink(path.join(repo.root, 'outside', T2), path.join(repo.root, '.lhr/threads', T2));
+      await symlink(
+        path.join(repo.root, `outside/${T2}/${M1}.md`),
+        path.join(repo.root, `.lhr/threads/${T1}/${M3}.md`),
+      );
+      const r = await readTree(repo.root);
+      assert.deepEqual(
+        r.problems.map((p) => [p.code, p.path]),
+        [
+          ['SYMLINK', `.lhr/threads/${T2}`],
+          ['SYMLINK', `.lhr/threads/${T1}/${M3}.md`],
+        ],
+      );
+      assert.deepEqual(
+        r.threads.map((t) => [t.id, ...t.messages.map((m) => m.id)]),
+        [[T1, M1]],
       );
     });
   });
