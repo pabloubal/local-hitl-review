@@ -3,6 +3,9 @@ import { LhrError } from './errors.js';
 import { checkFormat } from './format.js';
 import { GitBatch, GitExitError, runGit } from './git.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
+import type { TreeSnapshot } from './model.js';
+import { readTree } from './read.js';
+import { buildSnapshot } from './snapshot.js';
 
 export interface Host {
   /** Repo root (the directory holding .lhr/). */
@@ -19,6 +22,11 @@ export interface LhrTree {
   readonly root: string;
   newId(): string;
   newMessageFileName(kind: AuthorKind): string;
+  /**
+   * Reads the whole tree into an immutable snapshot. Broken files become
+   * `problems` on the snapshot; this never throws for file content.
+   */
+  load(): Promise<TreeSnapshot>;
   /** Releases the long-lived git process. Idempotent. */
   dispose(): Promise<void>;
 }
@@ -37,6 +45,10 @@ export class Tree implements LhrTree {
 
   newMessageFileName(kind: AuthorKind): string {
     return createMessageFileName(this.now(), kind, this.random());
+  }
+
+  async load(): Promise<TreeSnapshot> {
+    return buildSnapshot(await readTree(this.root));
   }
 
   dispose(): Promise<void> {
