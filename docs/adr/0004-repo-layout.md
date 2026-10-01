@@ -16,7 +16,7 @@ skills/           SKILL.md, AGENTS.md snippet, Cursor rules (plain files)
 
 - **The core is private.** esbuild bundles it into the CLI and the extension. The public contract is the file format (ADR 0003), not our library, so the core's API can change freely until it settles. Publishing it later needs no restructuring.
 - **One version for everything.** A single semantic-release run versions every package together and publishes both the `.vsix` and the CLI. Clients that share a version also share a file format version, so the number alone tells users which clients work together.
-- **CLI package name:** `lhr` if npm lets us claim it (it was unpublished in 2020), otherwise `local-hitl-review`. The binary is `lhr` either way.
+- **CLI package name:** `@pablou/lhr`, and its `bin` is `lhr`, so users type `lhr` after `npm i -g @pablou/lhr`, or `npx @pablou/lhr` without installing. The unscoped `lhr` still belongs to its 2020 owner even though it was unpublished, and `local-hitl-review` is already the extension's package name, which npm workspaces would not allow twice.
 - **Dependencies:** `@modelcontextprotocol/sdk` (and the `zod` it requires) for `lhr mcp`. Arguments are parsed with Node's built-in `util.parseArgs`, and git is called as the `git` binary, as `gitService.ts` already does. No prompt library until the interactive mode for a bare `lhr` is designed.
 - **Tests:** each package has its own `test/` folder. Core and the CLI use `node:test`. Core provides a helper that creates a real temporary git repo for anchoring tests. The CLI has end-to-end tests that run the built binary. `vscode-test` integration tests stay in `packages/vscode`.
 - **The move comes first.** One PR moves today's code into this layout with `git mv` and changes no behaviour. v2 work starts after it merges.
@@ -30,5 +30,5 @@ skills/           SKILL.md, AGENTS.md snippet, Cursor rules (plain files)
 
 ## Consequences
 
-- CI needs an `NPM_TOKEN` secret and an npm publish step for `packages/cli`.
+- CI publishes `packages/cli` through npm trusted publishing (GitHub Actions OIDC), not an `NPM_TOKEN` secret. The npm account requires two-factor authentication, and npm is phasing out tokens that bypass it.
 - The `.vscodeignore`, esbuild entry points, `tsconfig` and `.vscode-test.mjs` paths all move with the extension.
