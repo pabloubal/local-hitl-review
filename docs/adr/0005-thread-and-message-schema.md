@@ -12,7 +12,7 @@ The schema for `.lhr/` files has to keep ADR 0003's rule that every write adds a
 - **Messages point to their round.** A message submitted in a review round carries `round: <round-id>`, and the round file holds only the verdict and summary. This amends ADR 0003, which had the round file list its messages.
 - **Changing severity works like changing status.** `thread.md` holds the starting severity, and any message can change it; the latest one wins.
 - **One format version for the tree** (`.lhr/format`), not one per file, because `lhr migrate` converts the whole tree at once. Unknown keys are ignored by readers and only warned about by `lhr check`, so newer tools can add fields without breaking older ones.
-- **Nothing derivable is stored.** Timestamps come from file names, the reviewer from the opening message, status and severity from messages, and anchor state from the code. Nudge delivery and inbox read state stay local.
+- **Nothing derivable is stored.** Timestamps come from file names, the reviewer from the opening message, status and severity from messages, and anchor state from the code. Nudge delivery stays local, and the inbox is derived from whose turn it is.
 
 ## Considered options
 

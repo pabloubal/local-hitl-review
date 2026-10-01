@@ -140,7 +140,8 @@ These are calculated by the core and never written:
 - **Severity:** set by the latest message that sets `severity`, otherwise by `thread.md`, otherwise `medium`.
 - **Whose turn:** the `author.kind` of the last message.
 - **Anchor state** (current, outdated or orphaned) and current lines: see the anchor-state decision.
-- **Nudge delivery and inbox read state:** kept locally, outside the shared tree.
+- **Inbox:** open, submitted threads where it's the agent's turn (see [`core-api.md`](core-api.md)). There is no read state.
+- **Nudge delivery:** kept locally, outside the shared tree.
 
 ## Submitting a review round
 

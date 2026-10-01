@@ -56,3 +56,7 @@ _Avoid_: Session (unqualified), agent run
 **Nudge**:
 A short notice sent to an agent session saying that submitted feedback is waiting for it.
 _Avoid_: Notification, ping
+
+**Inbox**:
+The open, submitted threads where it's an agent's turn to reply. A thread leaves the inbox when an agent replies in it, not when it's read.
+_Avoid_: Queue, unread
