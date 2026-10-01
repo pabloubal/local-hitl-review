@@ -625,22 +625,34 @@ describe('filesystem fallbacks', () => {
     });
   });
 
-  it('wraps unexpected fs errors as LhrError', async () => {
+  it('wraps unexpected fs errors as IO_FAILED', async () => {
     await withCtx(async (c) => {
       const tid = await agentThread(c);
       const restore = stubLink('EIO');
       try {
         await assert.rejects(
           c.tree.reply(tid, { body: 'x', author: AGENT }),
-          (e) => e instanceof LhrError,
+          (e) => e instanceof LhrError && e.code === 'IO_FAILED',
         );
         await assert.rejects(
           c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN }),
-          (e) => e instanceof LhrError,
+          (e) => e instanceof LhrError && e.code === 'IO_FAILED',
         );
       } finally {
         restore();
       }
+    });
+  });
+
+  it('throws IO_FAILED when no unused draft thread ID is found', async () => {
+    await withCtx(async (c) => {
+      c.randoms.push('aaaaaa', 'bbbbbb');
+      await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'one', author: HUMAN });
+      c.randoms.push(...Array<string>(10).fill('aaaaaa'));
+      await assert.rejects(
+        c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'two', author: HUMAN }),
+        (e) => e instanceof LhrError && e.code === 'IO_FAILED',
+      );
     });
   });
 });
