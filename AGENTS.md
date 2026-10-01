@@ -47,8 +47,8 @@ Single-context layout (`GLOSSARY.md` and `docs/adr/` at repo root). See `docs/ag
 ## File Map
 <!-- AGENTS-GENERATED:START filemap -->
 ```
-src/             → application source code
-assets/          → static assets (images, fonts)
+packages/vscode/src/    → extension source code
+packages/vscode/assets/ → static assets (images, fonts)
 docs/            → documentation and agent guidelines
 ```
 <!-- AGENTS-GENERATED:END filemap -->
@@ -57,9 +57,9 @@ docs/            → documentation and agent guidelines
 <!-- AGENTS-GENERATED:START golden-samples -->
 | For | Reference | Key patterns |
 |-----|-----------|--------------|
-| Pure parsing & logic | `src/parser.ts` | Clean parsing/serialization, robust error handling, unit-tested |
-| Storage & workspace state | `src/feedbackStore.ts` | File-based storage, multi-repo and global/local review support |
-| Tree view & UI state | `src/changedFilesProvider.ts` | SCM view provider, Git integration, compare modes |
+| Pure parsing & logic | `packages/vscode/src/parser.ts` | Clean parsing/serialization, robust error handling, unit-tested |
+| Storage & workspace state | `packages/vscode/src/feedbackStore.ts` | File-based storage, multi-repo and global/local review support |
+| Tree view & UI state | `packages/vscode/src/changedFilesProvider.ts` | SCM view provider, Git integration, compare modes |
 <!-- AGENTS-GENERATED:END golden-samples -->
 
 ## Heuristics (quick decisions)
@@ -135,7 +135,7 @@ docs/            → documentation and agent guidelines
 
 ## Scoped AGENTS.md (MUST read when working in these directories)
 <!-- AGENTS-GENERATED:START scope-index -->
-- `./src/AGENTS.md` — Backend services (TypeScript/Node.js)
+- `./packages/vscode/src/AGENTS.md` — Backend services (TypeScript/Node.js)
 - `./.github/workflows/AGENTS.md` — GitHub Actions workflows and CI/CD automation
 <!-- AGENTS-GENERATED:END scope-index -->
 

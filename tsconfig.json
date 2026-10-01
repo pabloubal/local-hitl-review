@@ -1,21 +1,5 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "lib": ["ES2022"],
-    "types": ["node", "mocha"],
-    "outDir": "./out",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "out"]
+  "extends": "./packages/vscode/tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "./packages/vscode/src" },
+  "include": ["packages/vscode/src/**/*"]
 }

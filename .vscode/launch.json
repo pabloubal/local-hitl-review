@@ -7,10 +7,10 @@
       "request": "launch",
       "runtimeExecutable": "code",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode"
       ],
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
+        "${workspaceFolder}/packages/vscode/out/**/*.js"
       ],
       "preLaunchTask": "npm: build",
       "console": "integratedTerminal"
@@ -22,7 +22,7 @@
       "port": 9229,
       "restart": true,
       "outFiles": [
-        "${workspaceFolder}/out/**/*.js"
+        "${workspaceFolder}/packages/vscode/out/**/*.js"
       ]
     }
   ]
