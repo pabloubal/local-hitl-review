@@ -12,6 +12,7 @@ export interface ParsedFrontmatter {
 export const FRONTMATTER_SYNTAX = 'FRONTMATTER_SYNTAX';
 
 const KEY_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)*$/;
+const FORBIDDEN_CHARS_RE = /[\x00-\x08\x0b-\x1f\x7f\u0085\u2028\u2029]/;
 const INT_RE = /^-?[0-9]+$/;
 const INDICATORS = '-?:,[]{}#&*!|>\'"%@`';
 
@@ -34,7 +35,9 @@ function parseQuoted(raw: string): { value: string } | { error: string } {
         i += 2;
         continue;
       }
-      return { error: 'invalid escape in quoted string (only \\" and \\\\ are allowed)' };
+      return {
+        error: 'invalid escape in quoted string (only \\" and \\\\ are allowed)',
+      };
     }
     if (c === '"') {
       if (i !== raw.length - 1) {
@@ -52,6 +55,9 @@ function parseQuoted(raw: string): { value: string } | { error: string } {
 function parseValue(raw: string): { value: FrontmatterValue } | { error: string } {
   if (raw.trim() === '') {
     return { error: 'empty value (use "" for an empty string)' };
+  }
+  if (FORBIDDEN_CHARS_RE.test(raw)) {
+    return { error: 'control characters and line separators are not allowed' };
   }
   if (raw.startsWith('"')) {
     return parseQuoted(raw);
@@ -72,11 +78,14 @@ function parseValue(raw: string): { value: FrontmatterValue } | { error: string 
   if (INDICATORS.includes(raw[0])) {
     return { error: `value starting with "${raw[0]}" must be double-quoted` };
   }
-  if (raw.startsWith(' ') || raw.endsWith(' ')) {
-    return { error: 'value starting or ending with a space must be double-quoted' };
+  if (/^[ \t]|[ \t]$/.test(raw)) {
+    return { error: 'value starting or ending with a space or tab must be double-quoted' };
   }
-  if (raw.includes(': ') || raw.includes(' #')) {
-    return { error: 'value containing ": " or " #" must be double-quoted' };
+  if (raw.endsWith(':')) {
+    return { error: 'value ending with ":" must be double-quoted' };
+  }
+  if (raw.includes(': ') || raw.includes(' #') || raw.includes('\t#')) {
+    return { error: 'value containing ": ", " #" or a tab followed by "#" must be double-quoted' };
   }
   return { value: raw };
 }
@@ -84,7 +93,13 @@ function parseValue(raw: string): { value: FrontmatterValue } | { error: string 
 export function parseFrontmatter(text: string, path: string): ParsedFrontmatter {
   const diagnostics: Diagnostic[] = [];
   const fail = (line: number, message: string): void => {
-    diagnostics.push({ severity: 'error', code: FRONTMATTER_SYNTAX, path, line, message });
+    diagnostics.push({
+      severity: 'error',
+      code: FRONTMATTER_SYNTAX,
+      path,
+      line,
+      message,
+    });
   };
 
   const readLine = (pos: number): { line: string; next: number } => {
@@ -180,7 +195,7 @@ function parseLine(
 }
 
 function needsQuoting(s: string): boolean {
-  if (s === '' || s.startsWith(' ') || s.endsWith(' ')) {
+  if (s === '' || s.startsWith(' ') || s.endsWith(' ') || s.endsWith(':')) {
     return true;
   }
   if (s.includes(': ') || s.includes(' #') || s.includes('\t')) {
@@ -213,6 +228,12 @@ function serializeValue(key: string, value: FrontmatterValue): string {
   }
   if (value.includes('\n') || value.includes('\r')) {
     throw new LhrError('INVALID_INPUT', `value for "${key}" must not contain a line break`);
+  }
+  if (FORBIDDEN_CHARS_RE.test(value)) {
+    throw new LhrError(
+      'INVALID_INPUT',
+      `value for "${key}" must not contain control characters or line separators`,
+    );
   }
   if (!needsQuoting(value)) {
     return value;

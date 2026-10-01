@@ -212,7 +212,7 @@ describe('serializeFrontmatter', () => {
       '', ' a', 'a ', ' ', 'a: b', 'a #b', '42', '-1', 'true', 'false', 'null', '~', 'yes', 'No',
       'ON', '1.5', '1e3', '0x1F', '0o7', '0b1', '.inf', '-.Inf', '.NaN', '+5', '1_000',
       'say "hi"', 'back\\slash', 'ends with \\', 'tab\there', 'héllo wörld ✓', '日本語',
-      'plain', 'a,b,c', 'a:b', 'a#b',
+      'plain', 'a,b,c', 'a:b', 'a#b', 'foo:', '\tx', 'x\t', 'a\t#b',
       ...indicators.map((c) => `${c}rest`),
       ...indicators,
     ];
@@ -223,6 +223,17 @@ describe('serializeFrontmatter', () => {
       assert.deepEqual(r.diagnostics, [], JSON.stringify(str));
       assert.deepEqual(r.data, data, JSON.stringify(str));
       assert.equal(r.body, 'b\n');
+    }
+  });
+
+  it('rejects values YAML parsers would read differently', () => {
+    const ls = String.fromCharCode(0x2028);
+    const values = ['foo:', 'a\t# c', '\tx', 'x\t', 'a\x01b', '"a\x85b"', `"a${ls}b"`, '"a\x7f"'];
+    for (const v of values) {
+      const r = parse(`---\nk: ${v}\n---\n`);
+      assert.equal(r.diagnostics.length, 1, JSON.stringify(v));
+      assert.equal(r.diagnostics[0].code, FRONTMATTER_SYNTAX);
+      assert.deepEqual(r.data, {}, JSON.stringify(v));
     }
   });
 
@@ -250,6 +261,11 @@ describe('serializeFrontmatter', () => {
       { a: 2 ** 53 },
       { a: 'x\ny' },
       { a: 'x\ry' },
+      { a: 'a\x01b' },
+      { a: 'a\x7fb' },
+      { a: 'a\x85b' },
+      { a: `a${String.fromCharCode(0x2028)}b` },
+      { a: `a${String.fromCharCode(0x2029)}b` },
     ];
     for (const d of bad) {
       assert.throws(
