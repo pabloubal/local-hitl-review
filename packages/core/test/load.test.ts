@@ -22,7 +22,7 @@ function msg(
   return `---\nauthor.kind: ${kind}\nauthor.name: ${name}\n${extra}---\nbody\n`;
 }
 
-function mf(time: string, kind: 'human' | 'agent', rand = 'abcdef'): string {
+function messageFile(time: string, kind: 'human' | 'agent', rand = 'abcdef'): string {
   return `20261001T${time}Z-${kind}-${rand}.md`;
 }
 
@@ -57,7 +57,7 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human', `round: ${R1}\n`),
       );
       await repo.write(
@@ -83,11 +83,11 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'human', 'bbbbbb')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'human', 'bbbbbb')}`,
         msg('human', '', 'Second'),
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human', 'aaaaaa')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human', 'aaaaaa')}`,
         msg('human', '', 'First'),
       );
       const t = (await load()).thread(T1);
@@ -99,16 +99,16 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'agent')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'agent')}`,
         msg('agent', 'status: resolved\n'),
       );
       assert.equal((await load()).thread(T1)?.status, 'resolved');
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120300', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120300', 'human')}`,
         msg('human'),
       );
       assert.equal((await load()).thread(T1)?.status, 'open');
@@ -119,19 +119,19 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       await repo.write(`.lhr/threads/${T2}/thread.md`, threadMd('high'));
       await repo.write(
-        `.lhr/threads/${T2}/${mf('130100', 'human')}`,
+        `.lhr/threads/${T2}/${messageFile('130100', 'human')}`,
         msg('human'),
       );
       let snap = await load();
       assert.equal(snap.thread(T1)?.severity, 'medium');
       assert.equal(snap.thread(T2)?.severity, 'high');
       await repo.write(
-        `.lhr/threads/${T2}/${mf('130200', 'human')}`,
+        `.lhr/threads/${T2}/${messageFile('130200', 'human')}`,
         msg('human', 'severity: low\n'),
       );
       snap = await load();
@@ -143,12 +143,12 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       assert.equal((await load()).thread(T1)?.whoseTurn, 'agent');
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'agent')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'agent')}`,
         msg('agent'),
       );
       assert.equal((await load()).thread(T1)?.whoseTurn, 'human');
@@ -159,20 +159,20 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'agent')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'agent')}`,
         msg('agent', 'status: resolved\n'),
       );
       await repo.write(
-        `.lhr/drafts/threads/${T1}/${mf('120300', 'human')}`,
+        `.lhr/drafts/threads/${T1}/${messageFile('120300', 'human')}`,
         msg('human'),
       );
       await repo.write(`.lhr/drafts/threads/${T2}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/drafts/threads/${T2}/${mf('130100', 'human')}`,
+        `.lhr/drafts/threads/${T2}/${messageFile('130100', 'human')}`,
         msg('human'),
       );
       const snap = await load();
@@ -200,7 +200,7 @@ describe('LhrTree.load', () => {
     await withTree(async (repo, load) => {
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       assert.deepEqual(
@@ -208,7 +208,7 @@ describe('LhrTree.load', () => {
         [T1],
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'agent')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'agent')}`,
         msg('agent'),
       );
       assert.deepEqual((await load()).inbox(), []);
@@ -220,35 +220,35 @@ describe('LhrTree.load', () => {
       // T1: answered by s1, then a human follow-up.
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human')}`,
         msg('human'),
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120200', 'agent')}`,
+        `.lhr/threads/${T1}/${messageFile('120200', 'agent')}`,
         msg('agent', 'author.session: s1\n'),
       );
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120300', 'human')}`,
+        `.lhr/threads/${T1}/${messageFile('120300', 'human')}`,
         msg('human'),
       );
       // T2: answered by s2, then a human follow-up.
       await repo.write(`.lhr/threads/${T2}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T2}/${mf('130100', 'human')}`,
+        `.lhr/threads/${T2}/${messageFile('130100', 'human')}`,
         msg('human'),
       );
       await repo.write(
-        `.lhr/threads/${T2}/${mf('130200', 'agent')}`,
+        `.lhr/threads/${T2}/${messageFile('130200', 'agent')}`,
         msg('agent', 'author.session: s2\n'),
       );
       await repo.write(
-        `.lhr/threads/${T2}/${mf('130300', 'human')}`,
+        `.lhr/threads/${T2}/${messageFile('130300', 'human')}`,
         msg('human'),
       );
       // T3: never answered.
       await repo.write(`.lhr/threads/${T3}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T3}/${mf('150100', 'human')}`,
+        `.lhr/threads/${T3}/${messageFile('150100', 'human')}`,
         msg('human'),
       );
       const snap = await load();
@@ -265,10 +265,10 @@ describe('LhrTree.load', () => {
 
   it('reports a malformed message as one problem and still loads the thread', async () => {
     await withTree(async (repo, load) => {
-      const bad = `.lhr/threads/${T1}/${mf('120200', 'human', 'bbbbbb')}`;
+      const bad = `.lhr/threads/${T1}/${messageFile('120200', 'human', 'bbbbbb')}`;
       await repo.write(`.lhr/threads/${T1}/thread.md`, threadMd());
       await repo.write(
-        `.lhr/threads/${T1}/${mf('120100', 'human', 'aaaaaa')}`,
+        `.lhr/threads/${T1}/${messageFile('120100', 'human', 'aaaaaa')}`,
         msg('human'),
       );
       await repo.write(bad, 'no frontmatter here\n');
