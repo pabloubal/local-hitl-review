@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, rmdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import * as path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -9,7 +9,13 @@ import { LhrError } from './errors.js';
  * The cross-process drafts lock: the directory `.lhr/drafts/.lock/`. `mkdir` is atomic
  * on every file system we support (exFAT and SMB included, unlike hard links), so at most
  * one caller holds it. The holder writes `owner` (JSON `{ pid, hostname, acquiredAt,
- * token }`) inside it. Every draft mutation runs under the lock.
+ * token }`) inside it and touches the directory every `heartbeatMs` while it holds it.
+ * Every draft mutation runs under the lock.
+ *
+ * A lock is stale when its owner is a dead process on this host, or when the directory
+ * has not been touched for `staleMs`. Breakers are serialised by a second directory,
+ * `.lhr/drafts/.lock.break/`, and re-check staleness while holding it, so a lock is only
+ * moved aside right after it was verified stale.
  */
 
 interface Owner {
@@ -19,17 +25,35 @@ interface Owner {
   token: string;
 }
 
+/** What the lock holder learns about the acquisition. */
+export interface LockInfo {
+  /** true when the lock was held by someone else and this call had to wait */
+  waited: boolean;
+}
+
 export interface LockSeams {
   /** how long to wait for a busy lock before throwing IO_FAILED */
   timeoutMs: number;
-  /** a lock older than this is broken whoever holds it */
+  /** a lock untouched for this long is broken whoever holds it */
   staleMs: number;
+  /** how often the holder touches the lock directory */
+  heartbeatMs: number;
+  /** a break guard older than this was left by a dead breaker and is removed */
+  breakGuardStaleMs: number;
   hostname(): string;
   isAlive(pid: number): boolean;
-  /** called once per acquisition that finds the lock busy (tests) */
+  /** removes the lock directory on release */
+  removeLock(dir: string): Promise<void>;
+  /** awaited before the first attempt (tests) */
+  beforeAcquire?: (op: string) => Promise<void>;
+  /** called once per acquisition that has to wait for a busy lock (tests) */
   onWait?: (op: string) => void;
   /** awaited right after the lock is acquired (tests) */
   onAcquired?: (op: string) => Promise<void>;
+  /** awaited before trying to break a lock judged stale (tests) */
+  beforeBreak?: (op: string) => Promise<void>;
+  /** called with the owner token of each lock actually broken (tests) */
+  onBreak?: (token: string | undefined) => void;
 }
 
 const OWNER_FILE = 'owner';
@@ -52,8 +76,12 @@ function processIsAlive(pid: number): boolean {
 export const lockSeams: LockSeams = {
   timeoutMs: 5000,
   staleMs: 60_000,
+  heartbeatMs: 10_000,
+  breakGuardStaleMs: 10_000,
   hostname,
   isAlive: processIsAlive,
+  // Retries ride out transient EBUSY/EPERM (Windows virus scanners and indexers).
+  removeLock: (dir) => rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }),
 };
 
 function draftsDir(root: string): string {
@@ -82,8 +110,8 @@ async function readOwner(dir: string): Promise<Owner | undefined> {
 
 /**
  * Whether a busy lock may be broken: its owner is a dead process on this host, or the
- * lock directory is older than `staleMs` (owner on another host, or no owner file yet).
- * 'gone' means it was released meanwhile.
+ * lock directory was not touched for `staleMs` (a holder refreshes it every
+ * `heartbeatMs`). 'gone' means it was released meanwhile.
  */
 async function staleness(dir: string, owner: Owner | undefined): Promise<boolean | 'gone'> {
   if (owner && owner.hostname === lockSeams.hostname() && !lockSeams.isAlive(owner.pid)) {
@@ -98,30 +126,46 @@ async function staleness(dir: string, owner: Owner | undefined): Promise<boolean
 }
 
 /**
- * Breaks a stale lock atomically: rename it aside (only one breaker's rename succeeds),
- * then delete it. If what was moved is not the lock judged stale (it was released and
- * retaken in between), it is put back; that is best-effort, a narrow window that needs a
- * stale lock and three contenders.
+ * Tries to break a lock judged stale. Takes the break guard first (returns false when
+ * another breaker holds it, removing a guard left by a dead breaker), re-verifies the
+ * lock under the guard, then renames it aside and deletes it. Returns true when a stale
+ * lock was removed.
  */
-async function breakLock(root: string, dir: string, judged: string | undefined): Promise<void> {
-  const asideDir = path.join(draftsDir(root), '.tmp');
-  await mkdir(asideDir, { recursive: true });
-  const aside = path.join(asideDir, `lock-${randomUUID()}`);
+async function tryBreak(root: string, dir: string, op: string): Promise<boolean> {
+  await lockSeams.beforeBreak?.(op);
+  const guard = path.join(draftsDir(root), '.lock.break');
   try {
-    await rename(dir, aside);
+    await mkdir(guard);
   } catch (err) {
-    if (errCode(err) === 'ENOENT') return; // another breaker won
-    throw err;
-  }
-  if ((await readOwner(aside))?.token !== judged) {
+    if (errCode(err) !== 'EEXIST') throw err;
     try {
-      await rename(aside, dir);
-      return;
-    } catch {
-      // a newer lock is already in place; drop the one we moved
+      if (Date.now() - (await stat(guard)).mtimeMs > lockSeams.breakGuardStaleMs) {
+        await rmdir(guard);
+      }
+    } catch (rmErr) {
+      if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(errCode(rmErr) ?? '')) throw rmErr;
     }
+    return false;
   }
-  await rm(aside, { recursive: true, force: true });
+  try {
+    // The lock may have been released and retaken since it was judged: check again.
+    const holder = await readOwner(dir);
+    if ((await staleness(dir, holder)) !== true) return false;
+    const asideDir = path.join(draftsDir(root), '.tmp');
+    await mkdir(asideDir, { recursive: true });
+    const aside = path.join(asideDir, `lock-${randomUUID()}`);
+    try {
+      await rename(dir, aside);
+    } catch (err) {
+      if (errCode(err) === 'ENOENT') return false;
+      throw err;
+    }
+    lockSeams.onBreak?.(holder?.token);
+    await rm(aside, { recursive: true, force: true });
+    return true;
+  } finally {
+    await rmdir(guard).catch(() => undefined);
+  }
 }
 
 function busyMessage(owner: Owner | undefined): string {
@@ -134,7 +178,13 @@ function busyMessage(owner: Owner | undefined): string {
   );
 }
 
-async function acquire(root: string, op: string): Promise<string> {
+interface Held {
+  token: string;
+  waited: boolean;
+}
+
+async function acquire(root: string, op: string): Promise<Held> {
+  await lockSeams.beforeAcquire?.(op);
   const dir = lockDir(root);
   const owner: Owner = {
     pid: process.pid,
@@ -146,8 +196,14 @@ async function acquire(root: string, op: string): Promise<string> {
   let delay = 5;
   let waited = false;
   for (;;) {
+    let created = false;
     try {
       await mkdir(dir);
+      created = true;
+    } catch (err) {
+      if (errCode(err) !== 'EEXIST') throw err;
+    }
+    if (created) {
       try {
         owner.acquiredAt = new Date().toISOString();
         await writeFile(path.join(dir, OWNER_FILE), `${JSON.stringify(owner)}\n`);
@@ -155,14 +211,12 @@ async function acquire(root: string, op: string): Promise<string> {
         await rm(dir, { recursive: true, force: true });
         throw err;
       }
-      return owner.token;
-    } catch (err) {
-      if (errCode(err) !== 'EEXIST') throw err;
+      return { token: owner.token, waited };
     }
     const holder = await readOwner(dir);
     const stale = await staleness(dir, holder);
-    if (stale === true) await breakLock(root, dir, holder?.token);
-    if (stale !== false) continue;
+    if (stale === 'gone') continue;
+    if (stale && (await tryBreak(root, dir, op))) continue;
     if (!waited) {
       waited = true;
       lockSeams.onWait?.(op);
@@ -175,31 +229,48 @@ async function acquire(root: string, op: string): Promise<string> {
   }
 }
 
+/** Touches the lock directory while it is still ours, so it never looks stale. */
+async function touch(root: string, token: string): Promise<void> {
+  const dir = lockDir(root);
+  if ((await readOwner(dir))?.token !== token) return;
+  const now = new Date();
+  await utimes(dir, now, now);
+}
+
 /** Removes the lock if it is still ours (it is not if it was broken as stale). */
 async function release(root: string, token: string): Promise<void> {
   const dir = lockDir(root);
   if ((await readOwner(dir))?.token !== token) return;
-  await rm(dir, { recursive: true, force: true });
+  await lockSeams.removeLock(dir);
 }
 
 /**
  * Runs `fn` holding the drafts lock of the tree at `root`. `.lhr/drafts/` must exist.
- * Waits up to `timeoutMs` for a busy lock, then throws `IO_FAILED`.
+ * Waits up to `timeoutMs` for a busy lock, then throws `IO_FAILED`; other file system
+ * failures while locking are `IO_FAILED` too. A failed release never fails the call: the
+ * work is done, and the lock goes stale once its heartbeat stops.
  */
 export async function withDraftsLock<T>(
   root: string,
   op: string,
-  fn: () => Promise<T>,
+  fn: (lock: LockInfo) => Promise<T>,
 ): Promise<T> {
-  const token = await acquire(root, op);
-  let result: T;
+  let held: Held;
+  try {
+    held = await acquire(root, op);
+  } catch (err) {
+    if (err instanceof LhrError) throw err;
+    throw new LhrError('IO_FAILED', `could not take the drafts lock: ${(err as Error).message}`);
+  }
+  const heartbeat = setInterval(() => {
+    touch(root, held.token).catch(() => undefined);
+  }, lockSeams.heartbeatMs);
+  heartbeat.unref();
   try {
     await lockSeams.onAcquired?.(op);
-    result = await fn();
-  } catch (err) {
-    await release(root, token).catch(() => undefined);
-    throw err;
+    return await fn({ waited: held.waited });
+  } finally {
+    clearInterval(heartbeat);
+    await release(root, held.token).catch(() => undefined);
   }
-  await release(root, token);
-  return result;
 }

@@ -19,7 +19,7 @@ The field-level contract for the `.lhr/` tree. ADR 0003 decides the layout and A
 
 No file outside `drafts/` is rewritten or deleted by our tools after it is created. Draft files may be rewritten and deleted freely.
 
-Our tools change drafts only while holding the **drafts lock**, the directory `drafts/.lock/` (created with `mkdir`, which is atomic on every file system, unlike hard links). It holds an `owner` file with the holder's pid, host name and start time. A lock whose owner is a dead process on the same host, or that is older than 60 seconds, is stale and gets broken. A new draft thread is built complete (`thread.md` plus its first message) under `drafts/.tmp/` and renamed into `drafts/threads/`, so a draft thread never lacks its first message. Readers and `lhr check` ignore `drafts/.lock/` and `drafts/.tmp/`.
+Our tools change drafts only while holding the **drafts lock**, the directory `drafts/.lock/` (created with `mkdir`, which is atomic on every file system, unlike hard links). It holds an `owner` file with the holder's pid, host name and start time, and the holder touches the directory every 10 seconds. A lock whose owner is a dead process on the same host, or that was not touched for 60 seconds, is stale and gets broken; breakers take `drafts/.lock.break/` first and check again under it. Age is judged against the directory's modification time, so between hosts sharing a tree it assumes clocks agree to within that margin. A new draft thread is built complete (`thread.md` plus its first message) under `drafts/.tmp/` and renamed into `drafts/threads/`, so a draft thread never lacks its first message. Readers and `lhr check` ignore `drafts/.lock/`, `drafts/.lock.break/` and `drafts/.tmp/`.
 
 ## IDs and file names
 

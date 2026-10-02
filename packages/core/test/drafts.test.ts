@@ -111,7 +111,12 @@ function gateLock(op: string): { reached: Promise<void>; open(): void } {
 function resetLockSeams(): void {
   lockSeams.onWait = undefined;
   lockSeams.onAcquired = undefined;
+  lockSeams.beforeAcquire = undefined;
+  lockSeams.beforeBreak = undefined;
+  lockSeams.onBreak = undefined;
   lockSeams.timeoutMs = 5000;
+  lockSeams.staleMs = 60_000;
+  lockSeams.heartbeatMs = 10_000;
 }
 
 /** Holds the drafts lock while `start` launches calls, until `n` of them wait for it. */
@@ -942,6 +947,145 @@ describe('drafts lock', () => {
       const snap = await c.tree.load();
       assert.deepEqual(snap.problems, []);
       assert.equal(snap.threads({ includeDrafts: true }).length, 1);
+    });
+  });
+});
+
+describe('drafts lock: review follow-ups', () => {
+  /** A promise and the function that resolves it. */
+  function deferred(): { promise: Promise<void>; resolve(): void } {
+    let resolve = (): void => undefined;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  async function deadLock(c: Ctx, token: string): Promise<void> {
+    const dead = spawnSync(process.execPath, ['-e', '']).pid;
+    await mkdir(`${c.repo.root}/.lhr/drafts/.lock`, { recursive: true });
+    await writeFile(
+      `${c.repo.root}/.lhr/drafts/.lock/owner`,
+      JSON.stringify({ pid: dead, hostname: hostname(), acquiredAt: '', token }),
+    );
+  }
+
+  async function addDrafts(c: Ctx, n: number): Promise<{ tid: string; ids: string[] }> {
+    const tid = await agentThread(c);
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      ids.push((await c.tree.addDraftMessage(tid, { body: `m${i}`, author: HUMAN })).messageId);
+    }
+    return { tid, ids };
+  }
+
+  it('serialises two breakers of one dead lock; a live lock is never moved', async () => {
+    await withCtx(async (c) => {
+      await mkdir(`${c.repo.root}/.lhr/drafts`, { recursive: true });
+      await deadLock(c, 'dead-owner');
+      const broken: (string | undefined)[] = [];
+      lockSeams.onBreak = (token) => {
+        broken.push(token);
+      };
+      const gates = { C: deferred(), D: deferred() };
+      const reached = { C: deferred(), D: deferred() };
+      lockSeams.beforeBreak = async (op) => {
+        if (op !== 'C' && op !== 'D') return;
+        reached[op].resolve();
+        await gates[op].promise;
+      };
+      const order: string[] = [];
+      try {
+        const holdD = deferred();
+        const dHolding = deferred();
+        const pc = withDraftsLock(c.repo.root, 'C', async () => {
+          order.push('C');
+        });
+        await reached.C.promise; // C judged the dead lock stale but has not broken it yet
+        const pd = withDraftsLock(c.repo.root, 'D', async () => {
+          order.push('D');
+          dHolding.resolve();
+          await holdD.promise;
+        });
+        await reached.D.promise;
+        gates.D.resolve(); // D breaks the dead lock and takes a new one
+        await dHolding.promise;
+        const waiting = lockWaiters(1);
+        gates.C.resolve(); // C must re-verify, see D's live lock, and wait
+        assert.deepEqual(await waiting, ['C']);
+        const owner = await c.read('.lhr/drafts/.lock/owner');
+        assert.equal(owner.includes('dead-owner'), false);
+        holdD.resolve();
+        await Promise.all([pc, pd]);
+      } finally {
+        resetLockSeams();
+      }
+      assert.deepEqual(broken, ['dead-owner']);
+      assert.deepEqual(order, ['D', 'C']);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.tmp']);
+    });
+  });
+
+  it('removes a stale break guard left by a dead breaker', async () => {
+    await withCtx(async (c) => {
+      await mkdir(`${c.repo.root}/.lhr/drafts/.lock.break`, { recursive: true });
+      const old = new Date(Date.now() - 60 * 1000);
+      await utimes(`${c.repo.root}/.lhr/drafts/.lock.break`, old, old);
+      await deadLock(c, 'dead-owner');
+      lockSeams.timeoutMs = 2000;
+      try {
+        await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
+      } finally {
+        resetLockSeams();
+      }
+      const left = await c.ls('.lhr/drafts');
+      assert.equal(left.includes('.lock') || left.includes('.lock.break'), false);
+    });
+  });
+
+  it('maps unexpected file system errors while locking to IO_FAILED', async () => {
+    await withCtx(async (c) => {
+      // A file where .lhr/drafts/ should be makes mkdir of the lock fail with ENOTDIR.
+      await writeFile(`${c.repo.root}/.lhr/drafts`, 'not a directory');
+      await assert.rejects(
+        withDraftsLock(c.repo.root, 'test', async () => undefined),
+        hasCode('IO_FAILED'),
+      );
+    });
+  });
+
+  it('keeps the result when releasing the lock fails after the work committed', async () => {
+    await withCtx(async (c) => {
+      await mkdir(`${c.repo.root}/.lhr/drafts`, { recursive: true });
+      const original = lockSeams.removeLock;
+      lockSeams.removeLock = () =>
+        Promise.reject(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }));
+      try {
+        assert.equal(await withDraftsLock(c.repo.root, 'test', async () => 42), 42);
+      } finally {
+        lockSeams.removeLock = original;
+      }
+    });
+  });
+
+  it('a holder keeps its lock fresh with a heartbeat, so it is not broken as stale', async () => {
+    await withCtx(async (c) => {
+      await mkdir(`${c.repo.root}/.lhr/drafts`, { recursive: true });
+      lockSeams.heartbeatMs = 20;
+      lockSeams.staleMs = 200;
+      try {
+        await withDraftsLock(c.repo.root, 'slow', async () => {
+          await new Promise((r) => setTimeout(r, 350));
+          lockSeams.timeoutMs = 60;
+          await assert.rejects(
+            withDraftsLock(c.repo.root, 'second', async () => undefined),
+            hasCode('IO_FAILED'),
+          );
+        });
+      } finally {
+        resetLockSeams();
+      }
+      assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
     });
   });
 });
