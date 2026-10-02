@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { chmod, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { openTree, type Diagnostic } from '../src/index.js';
@@ -488,24 +489,28 @@ describe('check() with odd file system entries', () => {
     );
   });
 
-  it('validates the target of a symlinked message', async () => {
+  it('reports a symlinked message instead of following it', async () => {
+    const other = '20260101T100400Z-human-ffffff.md';
     const diags = await run(async (r) => {
       await r.write('outside/bad.txt', '---\nno colon\n---\n');
       await r.write('outside/good.txt', msg());
       await symlink(path.join(r.root, 'outside/bad.txt'), path.join(r.root, THREAD_DIR, NAME));
-      await symlink(
-        path.join(r.root, 'outside/good.txt'),
-        path.join(r.root, THREAD_DIR, '20260101T100400Z-human-ffffff.md'),
-      );
+      await symlink(path.join(r.root, 'outside/good.txt'), path.join(r.root, THREAD_DIR, other));
     });
-    expectOnly(diags, 'FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`);
+    assert.deepEqual(
+      diags.map((d) => [d.code, d.path, d.severity]),
+      [
+        ['SYMLINK', `${THREAD_DIR}/${NAME}`, 'error'],
+        ['SYMLINK', `${THREAD_DIR}/${other}`, 'error'],
+      ],
+    );
   });
 
   it('reports a broken symlink', async () => {
     const diags = await run(async (r) => {
       await symlink(path.join(r.root, 'nowhere'), path.join(r.root, THREAD_DIR, NAME));
     });
-    expectOnly(diags, 'UNREADABLE_FILE', `${THREAD_DIR}/${NAME}`);
+    expectOnly(diags, 'SYMLINK', `${THREAD_DIR}/${NAME}`);
   });
 
   it('reports an unreadable file', async (t) => {
@@ -519,5 +524,163 @@ describe('check() with odd file system entries', () => {
     });
     expectOnly(diags, 'UNREADABLE_FILE', target);
     void file;
+  });
+});
+
+/** [code, path] pairs of check() diagnostics and load() problems, for the same tree. */
+async function both(
+  setup: (repo: TempRepo) => Promise<void>,
+): Promise<{ check: string[][]; load: string[][]; threads: string[][] }> {
+  const repo = await createTempRepo();
+  try {
+    await cleanTree(repo);
+    await setup(repo);
+    const tree = await openTree({ root: repo.root });
+    try {
+      const pairs = (ds: readonly Diagnostic[]): string[][] =>
+        ds.map((d) => [d.code, d.path]).sort((a, b) => (a.join() < b.join() ? -1 : 1));
+      const snap = await tree.load();
+      return {
+        check: pairs((await tree.check()).diagnostics),
+        load: pairs(snap.problems),
+        threads: snap
+          .threads({ includeDrafts: true })
+          .map((t) => [t.id, ...t.messages.map((m) => m.id)]),
+      };
+    } finally {
+      await tree.dispose();
+    }
+  } finally {
+    await repo.cleanup();
+  }
+}
+
+describe('check() and load() agree', () => {
+  const NAME = '20260101T100300Z-human-eeeeee.md';
+  const T2 = '20260102T100000Z-bbbbbb';
+
+  it('report a symlinked message and do not follow it', async () => {
+    const r = await both(async (repo) => {
+      await repo.write('outside/good.txt', msg());
+      await symlink(
+        path.join(repo.root, 'outside/good.txt'),
+        path.join(repo.root, THREAD_DIR, NAME),
+      );
+    });
+    assert.deepEqual(r.check, [['SYMLINK', `${THREAD_DIR}/${NAME}`]]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, [[T1, M1, M2]]);
+  });
+
+  it('report a symlinked thread directory, thread.md and round file', async () => {
+    const r2 = '20260101T120100Z-hhhhhh';
+    const r = await both(async (repo) => {
+      await repo.write(`outside/${T2}/thread.md`, FILE_THREAD);
+      await repo.write(`outside/${T2}/${M1}.md`, msg());
+      await symlink(path.join(repo.root, 'outside', T2), path.join(repo.root, '.lhr/threads', T2));
+      await repo.write('outside/round.md', ROUND);
+      await symlink(
+        path.join(repo.root, 'outside/round.md'),
+        path.join(repo.root, `.lhr/rounds/${r2}.md`),
+      );
+      await rm(path.join(repo.root, THREAD_MD));
+      await symlink(
+        path.join(repo.root, `outside/${T2}/thread.md`),
+        path.join(repo.root, THREAD_MD),
+      );
+    });
+    assert.deepEqual(r.check, [
+      ['SYMLINK', `.lhr/rounds/${r2}.md`],
+      ['SYMLINK', THREAD_MD],
+      ['SYMLINK', `.lhr/threads/${T2}`],
+    ]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, []);
+  });
+
+  it('report EMPTY_THREAD when every message of a submitted thread is invalid', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`${THREAD_DIR}/${M1}.md`, '---\nno colon\n---\n');
+      await repo.write(`${THREAD_DIR}/${M2}.md`, msg('author.session: s1\n', 'agent', ''));
+    });
+    assert.deepEqual(r.check, [
+      ['EMPTY_BODY', `${THREAD_DIR}/${M2}.md`],
+      ['EMPTY_THREAD', THREAD_DIR],
+      ['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${M1}.md`],
+    ]);
+    assert.deepEqual(r.load, r.check);
+  });
+
+  it('do not flag a leftover draft copy of a submitted message as a duplicate', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await repo.write(`.lhr/drafts/threads/${T1}/${M1}.md`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(r.check, []);
+    assert.deepEqual(r.load, []);
+    assert.deepEqual(r.threads, [[T1, M1, M2]]);
+  });
+
+  it('keep a valid draft whose submitted copy is broken (failed publish)', async () => {
+    const r = await both(async (repo) => {
+      await rm(path.join(repo.root, THREAD_DIR, `${M2}.md`));
+      await repo.write(`${THREAD_DIR}/${M1}.md`, '---\nno colon\n---\n');
+      await repo.write(`.lhr/drafts/threads/${T1}/${M1}.md`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(r.check, [['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${M1}.md`]]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, [[T1, M1]]);
+  });
+
+  it('keep a valid draft whose submitted copy is broken, next to valid messages', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`${THREAD_DIR}/${M1}.md`, msg(`clientId: abc\nround: ${R1}\n`));
+      await repo.write(`${THREAD_DIR}/${NAME}`, '---\nno colon\n---\n');
+      await repo.write(`.lhr/drafts/threads/${T1}/${NAME}`, msg('clientId: abc\n'));
+    });
+    assert.deepEqual(r.check, [
+      ['DUPLICATE_CLIENT_ID', `.lhr/drafts/threads/${T1}/${NAME}`],
+      ['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`],
+    ]);
+    assert.deepEqual(r.load, [['FRONTMATTER_SYNTAX', `${THREAD_DIR}/${NAME}`]]);
+    assert.deepEqual(r.threads, [[T1, M1, M2, NAME.slice(0, -3)]]);
+  });
+
+  it('report a FIFO where a message or thread.md is expected', async (t) => {
+    if (process.platform === 'win32') return t.skip('no FIFOs on Windows');
+    const r = await both(async (repo) => {
+      await repo.write(`.lhr/threads/${T2}/${M1}.md`, msg());
+      execFileSync('mkfifo', [
+        path.join(repo.root, THREAD_DIR, NAME),
+        path.join(repo.root, `.lhr/threads/${T2}/thread.md`),
+      ]);
+    });
+    assert.deepEqual(r.check, [
+      ['UNREADABLE_FILE', `${THREAD_DIR}/${NAME}`],
+      ['UNREADABLE_FILE', `.lhr/threads/${T2}/thread.md`],
+    ]);
+    assert.deepEqual(r.load, r.check);
+    assert.deepEqual(r.threads, [[T1, M1, M2]]);
+  });
+
+  it('ignore a symlinked leftover draft thread.md next to a submitted thread', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`.lhr/drafts/threads/${T1}/${NAME}`, msg());
+      await symlink(
+        path.join(repo.root, THREAD_MD),
+        path.join(repo.root, `.lhr/drafts/threads/${T1}/thread.md`),
+      );
+    });
+    assert.deepEqual(r.check, []);
+    assert.deepEqual(r.load, []);
+  });
+
+  it('ignore a leftover draft thread.md next to a submitted thread', async () => {
+    const r = await both(async (repo) => {
+      await repo.write(`.lhr/drafts/threads/${T1}/thread.md`, 'garbage');
+      await repo.write(`.lhr/drafts/threads/${T1}/${NAME}`, msg());
+    });
+    assert.deepEqual(r.check, []);
+    assert.deepEqual(r.load, []);
   });
 });
