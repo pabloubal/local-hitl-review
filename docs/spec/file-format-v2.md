@@ -161,10 +161,11 @@ If this is interrupted, a round may exist with only some of its messages, and ru
     - Frontmatter has a syntax error.
     - A required key is missing, or a value has the wrong type or enum.
     - A file name isn't a valid ID, or a message's `author.kind` doesn't match its file name.
-    - A thread directory has no `thread.md`, or a submitted thread has no messages.
+    - A thread directory has no `thread.md`, or a submitted thread has no valid messages (counting its draft messages after an interrupted submit).
+    - A symlink where a thread directory, `thread.md`, message, round or push file is expected (`SYMLINK`). Links are never followed; `load()` reports the same problem and skips the entry.
     - A line thread's snapshot line count isn't `contextBefore + (endLine - startLine + 1) + contextAfter`.
     - A message's `round` names a missing round file.
-    - A thread has a duplicate `clientId`.
+    - A thread has a duplicate `clientId`. A draft copy of a submitted message with the same ID, left by an interrupted submit, is the same message, not a duplicate.
     - A push record names an unknown thread or message ID.
   - **Warnings:**
     - An unknown key.
