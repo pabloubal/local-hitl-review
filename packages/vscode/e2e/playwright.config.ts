@@ -10,8 +10,8 @@ export default defineConfig({
   outputDir: '../e2e-results/artifacts',
   snapshotPathTemplate: '{testDir}/approved/{testFileName}/{arg}{ext}',
   // Per test, and for the whole run on CI so a hang can't burn runner minutes.
-  timeout: 90_000,
-  globalTimeout: process.env.CI ? 10 * 60_000 : 0,
+  timeout: 60_000,
+  globalTimeout: process.env.CI ? 4 * 60_000 : 0,
   expect: { timeout: 10_000 },
   // Instances are fully isolated, but one window at a time keeps keyboard
   // focus and timing predictable.
