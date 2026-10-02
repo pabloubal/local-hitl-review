@@ -926,7 +926,10 @@ describe('LhrTree.anchors: robustness', () => {
     await withRepo({ 'real.ts': base30() }, async (repo) => {
       await symlink('real.ts', path.join(repo.root, 'link.ts'));
       const f = await fileThread(repo, 'link.ts');
-      assert.equal((await anchorOne(repo, f)).state, 'current');
+      const r = await anchorOne(repo, f);
+      assert.equal(r.state, 'current');
+      // The link keeps its own name; it is not resolved to the target.
+      assert.equal(r.path, 'link.ts');
     });
   });
 });
