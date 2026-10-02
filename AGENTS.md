@@ -137,6 +137,7 @@ docs/            → documentation and agent guidelines
 <!-- AGENTS-GENERATED:START scope-index -->
 - `./packages/vscode/src/AGENTS.md` — Backend services (TypeScript/Node.js)
 - `./.github/workflows/AGENTS.md` — GitHub Actions workflows and CI/CD automation
+- `./packages/vscode/e2e/AGENTS.md` — End-to-end UI scenarios and approved output
 <!-- AGENTS-GENERATED:END scope-index -->
 
 > **Agents**: When you read or edit files in a listed directory, you **must** load its AGENTS.md first. It contains directory-specific conventions that override this root file.
