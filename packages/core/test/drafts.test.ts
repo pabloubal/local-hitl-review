@@ -1,9 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, readFile, readdir, utimes, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { LhrError } from '../src/errors.js';
+import { lockSeams, withDraftsLock } from '../src/lock.js';
 import { seams } from '../src/write.js';
-import { openTree, type Author, type LhrTree } from '../src/index.js';
+import {
+  openTree,
+  type Author,
+  type LhrTree,
+  type SubmitRoundResult,
+} from '../src/index.js';
 import { createTempRepo, type TempRepo } from './helpers/tempRepo.js';
 
 function hasCode(code: string): (err: unknown) => boolean {
@@ -62,6 +70,62 @@ async function withCtx(fn: (ctx: Ctx) => Promise<void>): Promise<void> {
 }
 
 const FILE_ANCHOR = { path: 'src/a.ts', kind: 'file' } as const;
+
+function stubLink(code: string): () => void {
+  const original = seams.link;
+  seams.link = () => Promise.reject(Object.assign(new Error(code), { code }));
+  return () => {
+    seams.link = original;
+  };
+}
+
+/** Resolves once `n` lock acquisitions have found the drafts lock busy. */
+function lockWaiters(n: number): Promise<string[]> {
+  const ops: string[] = [];
+  return new Promise((resolve) => {
+    lockSeams.onWait = (op) => {
+      ops.push(op);
+      if (ops.length === n) resolve(ops);
+    };
+  });
+}
+
+/** Pauses the holder of the drafts lock for `op` until `open()` is called. */
+function gateLock(op: string): { reached: Promise<void>; open(): void } {
+  let open = (): void => undefined;
+  let reach = (): void => undefined;
+  const gate = new Promise<void>((r) => {
+    open = r;
+  });
+  const reached = new Promise<void>((r) => {
+    reach = r;
+  });
+  lockSeams.onAcquired = async (acquired) => {
+    if (acquired !== op) return;
+    reach();
+    await gate;
+  };
+  return { reached, open };
+}
+
+function resetLockSeams(): void {
+  lockSeams.onWait = undefined;
+  lockSeams.onAcquired = undefined;
+  lockSeams.timeoutMs = 5000;
+}
+
+/** Holds the drafts lock while `start` launches calls, until `n` of them wait for it. */
+async function contend(root: string, n: number, start: () => void): Promise<void> {
+  const waiting = lockWaiters(n);
+  try {
+    await withDraftsLock(root, 'test', async () => {
+      start();
+      await waiting;
+    });
+  } finally {
+    resetLockSeams();
+  }
+}
 
 async function agentThread(c: Ctx): Promise<string> {
   const r = await c.tree.createThread({ anchor: FILE_ANCHOR, body: 'agent q', author: AGENT });
@@ -563,7 +627,15 @@ describe('crash safety', () => {
         ids.push((await c.tree.addDraftMessage(tid, { body: `m${i}`, author: HUMAN })).messageId);
       }
       const input = { verdict: 'comment', summary: '', author: HUMAN } as const;
-      const [a, b] = await Promise.all([c.tree.submitRound(input), c.tree.submitRound(input)]);
+      let pa: Promise<SubmitRoundResult> | undefined;
+      let pb: Promise<SubmitRoundResult> | undefined;
+      // Both submits start while the lock is held, so they are guaranteed to contend.
+      await contend(c.repo.root, 2, () => {
+        pa = c.tree.submitRound(input);
+        pb = c.tree.submitRound(input);
+      });
+      const [a, b] = await Promise.all([pa, pb]);
+      assert.ok(a && b);
       assert.equal(a.roundId, b.roundId);
       assert.equal(a.resumed !== b.resumed, true);
       assert.equal((await c.ls('.lhr/rounds')).length, 1);
@@ -577,14 +649,6 @@ describe('crash safety', () => {
 });
 
 describe('filesystem fallbacks', () => {
-  function stubLink(code: string): () => void {
-    const original = seams.link;
-    seams.link = () => Promise.reject(Object.assign(new Error(code), { code }));
-    return () => {
-      seams.link = original;
-    };
-  }
-
   it('falls back to exclusive create when hard links are unsupported', async () => {
     await withCtx(async (c) => {
       const restore = stubLink('EPERM');
@@ -644,6 +708,36 @@ describe('filesystem fallbacks', () => {
     });
   });
 
+  it('two concurrent submits make one round when hard links are unsupported', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        ids.push((await c.tree.addDraftMessage(tid, { body: `m${i}`, author: HUMAN })).messageId);
+      }
+      const restore = stubLink('EPERM');
+      try {
+        const input = { verdict: 'comment', summary: '', author: HUMAN } as const;
+        let pa: Promise<SubmitRoundResult> | undefined;
+        let pb: Promise<SubmitRoundResult> | undefined;
+        await contend(c.repo.root, 2, () => {
+          pa = c.tree.submitRound(input);
+          pb = c.tree.submitRound(input);
+        });
+        const [a, b] = await Promise.all([pa, pb]);
+        assert.ok(a && b);
+        assert.equal(a.roundId, b.roundId);
+        assert.equal((await c.ls('.lhr/rounds')).length, 1);
+        const snap = await c.tree.load();
+        assert.deepEqual(snap.problems, []);
+        assert.deepEqual(snap.thread(tid)?.messages.slice(1).map((m) => m.id), ids.slice().sort());
+        assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      } finally {
+        restore();
+      }
+    });
+  });
+
   it('throws IO_FAILED when no unused draft thread ID is found', async () => {
     await withCtx(async (c) => {
       c.randoms.push('aaaaaa', 'bbbbbb');
@@ -670,6 +764,159 @@ describe('check() on a tree with drafts', () => {
       await writeFile(`${c.repo.root}/.lhr/drafts/.tmp/leftover`, 'partial');
       await writeFile(`${c.repo.root}/.lhr/drafts/.submitting`, '');
       assert.deepEqual((await c.tree.check()).diagnostics, []);
+    });
+  });
+});
+
+describe('drafts lock', () => {
+  function lockDir(c: Ctx): string {
+    return `${c.repo.root}/.lhr/drafts/.lock`;
+  }
+
+  async function writeLock(c: Ctx, owner: object | undefined): Promise<void> {
+    await mkdir(lockDir(c), { recursive: true });
+    if (owner) await writeFile(`${lockDir(c)}/owner`, JSON.stringify(owner));
+  }
+
+  it('updateDraft waiting on a submit cannot resurrect the submitted draft', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+      const gate = gateLock('submitRound');
+      try {
+        const submit = c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+        await gate.reached;
+        const waiting = lockWaiters(1);
+        const update = c.tree.updateDraft(m.messageId, { body: 'edited' });
+        assert.deepEqual(await waiting, ['updateDraft']);
+        gate.open();
+        await submit;
+        await assert.rejects(update, hasCode('NOT_A_DRAFT'));
+      } finally {
+        resetLockSeams();
+      }
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+      const second = await c.tree.submitRound({ verdict: 'approve', summary: '', author: HUMAN });
+      assert.deepEqual(second.messageIds, []);
+      assert.equal((await c.read(`.lhr/threads/${tid}/${m.messageId}.md`)).endsWith('x\n'), true);
+    });
+  });
+
+  it('a submit waiting on updateDraft publishes the edited draft', async () => {
+    await withCtx(async (c) => {
+      const tid = await agentThread(c);
+      const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+      const gate = gateLock('updateDraft');
+      let result: SubmitRoundResult;
+      try {
+        const update = c.tree.updateDraft(m.messageId, { body: 'edited' });
+        await gate.reached;
+        const waiting = lockWaiters(1);
+        const submit = c.tree.submitRound({ verdict: 'comment', summary: '', author: HUMAN });
+        assert.deepEqual(await waiting, ['submitRound']);
+        assert.deepEqual(await c.ls(`.lhr/drafts/threads/${tid}`), [`${m.messageId}.md`]);
+        gate.open();
+        await update;
+        result = await submit;
+      } finally {
+        resetLockSeams();
+      }
+      assert.deepEqual(result.messageIds, [m.messageId]);
+      assert.equal(
+        (await c.read(`.lhr/threads/${tid}/${m.messageId}.md`)).endsWith('edited\n'),
+        true,
+      );
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.tmp']);
+    });
+  });
+
+  it('breaks a lock whose owner process on this host is dead', async () => {
+    await withCtx(async (c) => {
+      const dead = spawnSync(process.execPath, ['-e', '']).pid;
+      await mkdir(`${c.repo.root}/.lhr/drafts`, { recursive: true });
+      await writeLock(c, {
+        pid: dead,
+        hostname: hostname(),
+        acquiredAt: new Date().toISOString(),
+        token: 'dead-owner',
+      });
+      lockSeams.timeoutMs = 1000;
+      try {
+        await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
+      } finally {
+        resetLockSeams();
+      }
+      assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
+      assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
+    });
+  });
+
+  it('breaks a lock older than the stale age, with or without an owner file', async () => {
+    await withCtx(async (c) => {
+      const old = new Date(Date.now() - 10 * 60 * 1000);
+      for (const owner of [
+        { pid: 1, hostname: 'another-host', acquiredAt: old.toISOString(), token: 'old' },
+        undefined,
+      ]) {
+        await writeLock(c, owner);
+        await utimes(lockDir(c), old, old);
+        lockSeams.timeoutMs = 1000;
+        try {
+          await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
+        } finally {
+          resetLockSeams();
+        }
+        assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
+      }
+    });
+  });
+
+  it('throws IO_FAILED after the bounded wait when a live process holds the lock', async () => {
+    await withCtx(async (c) => {
+      await writeLock(c, {
+        pid: process.pid,
+        hostname: hostname(),
+        acquiredAt: new Date().toISOString(),
+        token: 'live',
+      });
+      lockSeams.timeoutMs = 150;
+      try {
+        await assert.rejects(
+          c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN }),
+          (e) => e instanceof LhrError && e.code === 'IO_FAILED' && /locked/.test(e.message),
+        );
+      } finally {
+        resetLockSeams();
+      }
+      assert.equal(await c.read('.lhr/drafts/.lock/owner').then((t) => t.includes('live')), true);
+      assert.deepEqual(await c.ls('.lhr/drafts'), ['.gitignore', '.lock', '.tmp']);
+    });
+  });
+
+  it('releases the lock when the locked operation fails', async () => {
+    await withCtx(async (c) => {
+      await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
+      await assert.rejects(
+        c.tree.updateDraft('20261001T120000Z-human-zzzzzz', { body: 'x' }),
+        hasCode('DRAFT_NOT_FOUND'),
+      );
+      assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
+    });
+  });
+
+  it('check() and load() ignore the lock', async () => {
+    await withCtx(async (c) => {
+      await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
+      await writeLock(c, {
+        pid: process.pid,
+        hostname: hostname(),
+        acquiredAt: new Date().toISOString(),
+        token: 't',
+      });
+      assert.deepEqual((await c.tree.check()).diagnostics, []);
+      const snap = await c.tree.load();
+      assert.deepEqual(snap.problems, []);
+      assert.equal(snap.threads({ includeDrafts: true }).length, 1);
     });
   });
 });
