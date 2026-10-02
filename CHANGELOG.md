@@ -1,3 +1,10 @@
+## [0.23.2](https://github.com/pabloubal/local-hitl-review/compare/v0.23.1...v0.23.2) (2026-10-01)
+
+
+### Bug Fixes
+
+* **skills:** verify-hitl-review for the monorepo layout and all features ([#88](https://github.com/pabloubal/local-hitl-review/issues/88)) ([757a355](https://github.com/pabloubal/local-hitl-review/commit/757a355c133a13fd9c2deba9909c978f19823520)), closes [#73](https://github.com/pabloubal/local-hitl-review/issues/73) [#84](https://github.com/pabloubal/local-hitl-review/issues/84) [-#87](https://github.com/-/issues/87)
+
 ## [0.23.1](https://github.com/pabloubal/local-hitl-review/compare/v0.23.0...v0.23.1) (2026-10-01)
 
 
