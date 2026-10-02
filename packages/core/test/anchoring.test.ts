@@ -315,7 +315,7 @@ describe('LhrTree.anchors: deletes and moves (scenario 4)', () => {
     });
   });
 
-  it('4c: a block pasted as split hunks (blank line and brace paired) -> current, moved', async () => {
+  it('4c2: a block pasted as split hunks (blank line and brace paired) -> current, moved', async () => {
     const blk = ['function foo() {', '  a();', '', '  b();', '}'];
     const xs = Array.from({ length: 10 }, (_, i) => `x${i}`);
     await withRepo({ 'a.ts': [...blk, ...xs, '', 'Y'] }, async (repo) => {
