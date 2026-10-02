@@ -149,7 +149,7 @@ export const seams = {
 };
 
 /** fsyncs a directory so a new or renamed entry survives power loss; best-effort on platforms without it. */
-async function fsyncDir(dir: string): Promise<void> {
+export async function fsyncDir(dir: string): Promise<void> {
   let handle;
   try {
     handle = await open(dir, 'r');

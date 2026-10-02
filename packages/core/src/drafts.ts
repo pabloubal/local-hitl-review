@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rm, rmdir, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, readFile, readdir, rename, rm, rmdir, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
@@ -11,6 +12,7 @@ import {
   MAX_ATTEMPTS,
   createAtomic,
   ensureDraftsRoot,
+  fsyncDir,
   replaceAtomic,
   tempDir,
   invalid,
@@ -94,6 +96,16 @@ async function locked<T>(tree: Tree, op: string, fn: () => Promise<T>): Promise<
   return withDraftsLock(tree.root, op, fn);
 }
 
+async function exists(file: string): Promise<boolean> {
+  try {
+    await lstat(file);
+    return true;
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 function validateDraft(m: MessageFields): void {
   validateMessage(m);
   if (m.author.kind !== 'human') throw invalid('draft messages must have a human author');
@@ -114,21 +126,35 @@ export async function createDraftThread(
     ...(input.severity !== undefined ? { severity: input.severity } : {}),
   });
   return locked(tree, 'createDraftThread', async () => {
+    // The thread is built complete (thread.md + opening message) in a staging directory
+    // under .tmp/ and renamed into place, so a crash never leaves a thread with no message.
+    const staging = path.join(tempDir(tree), `thread-${randomUUID()}`);
     await mkdir(draftThreadsDir(tree), { recursive: true });
-    for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      const threadId = tree.newId();
-      const dir = path.join(draftThreadsDir(tree), threadId);
-      try {
-        await mkdir(dir);
-      } catch (err) {
-        if (errnoCode(err) === 'EEXIST') continue;
-        throw err;
+    try {
+      let messageId: string | undefined;
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        const threadId = tree.newId();
+        const dir = path.join(draftThreadsDir(tree), threadId);
+        // Safe under the lock: only lock holders create draft thread directories.
+        if (await exists(dir)) continue;
+        if (messageId === undefined) {
+          await mkdir(staging);
+          await createAtomic(tree, path.join(staging, THREAD_FILE), text);
+          messageId = await writeMessage(tree, staging, 'human', openingText);
+        }
+        try {
+          await rename(staging, dir);
+        } catch (err) {
+          if (['EEXIST', 'ENOTEMPTY'].includes(errnoCode(err) ?? '')) continue;
+          throw err;
+        }
+        await fsyncDir(draftThreadsDir(tree));
+        return { threadId, messageId };
       }
-      if (!(await createAtomic(tree, path.join(dir, THREAD_FILE), text))) continue;
-      const messageId = await writeMessage(tree, dir, 'human', openingText);
-      return { threadId, messageId };
+      throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
     }
-    throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
   });
 }
 

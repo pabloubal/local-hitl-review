@@ -738,6 +738,29 @@ describe('filesystem fallbacks', () => {
     });
   });
 
+  it('createDraftThread leaves no partial thread when the first message write fails', async () => {
+    await withCtx(async (c) => {
+      const original = seams.link;
+      seams.link = (from, to) =>
+        String(to).endsWith('thread.md')
+          ? original(from, to)
+          : Promise.reject(Object.assign(new Error('EIO'), { code: 'EIO' }));
+      try {
+        await assert.rejects(
+          c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN }),
+          hasCode('IO_FAILED'),
+        );
+      } finally {
+        seams.link = original;
+      }
+      assert.deepEqual(await c.ls('.lhr/drafts/threads').catch(() => []), []);
+      assert.deepEqual(await c.ls('.lhr/drafts/.tmp'), []);
+      assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
+      assert.deepEqual((await c.tree.load()).threads({ includeDrafts: true }), []);
+      assert.deepEqual((await c.tree.check()).diagnostics, []);
+    });
+  });
+
   it('throws IO_FAILED when no unused draft thread ID is found', async () => {
     await withCtx(async (c) => {
       c.randoms.push('aaaaaa', 'bbbbbb');
@@ -904,7 +927,7 @@ describe('drafts lock', () => {
     });
   });
 
-  it('check() and load() ignore the lock', async () => {
+  it('check() and load() ignore the lock and staged draft threads', async () => {
     await withCtx(async (c) => {
       await c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN });
       await writeLock(c, {
@@ -913,6 +936,8 @@ describe('drafts lock', () => {
         acquiredAt: new Date().toISOString(),
         token: 't',
       });
+      await mkdir(`${c.repo.root}/.lhr/drafts/.tmp/thread-x`, { recursive: true });
+      await writeFile(`${c.repo.root}/.lhr/drafts/.tmp/thread-x/thread.md`, 'partial');
       assert.deepEqual((await c.tree.check()).diagnostics, []);
       const snap = await c.tree.load();
       assert.deepEqual(snap.problems, []);
