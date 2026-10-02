@@ -37,3 +37,14 @@ A thread is attached to code that keeps changing after the comment is written. R
 - **Accepted limitation:** a plain `mv` (new name untracked) combined with an edit to the anchored lines comes out orphaned, because `git diff -M` can't see untracked files and the content no longer matches. It resolves once the rename is staged. The extension sees renames as they happen through workspace events.
 - Text search still guesses when an anchor is short and generic and its context was also edited. Such threads may come out orphaned, or land on the wrong copy, instead of outdated.
 - Anchor state depends on the local checkout, so two people can see different states for the same thread. That is intended: the state describes the code in front of you.
+
+## Amendment: non-git review roots
+
+The review root need not be a repo (see [`core-api.md`](../spec/core-api.md) § Opening a tree). The original decisions stand; this adds how the repo is found.
+
+- **The repo is derived from `anchor.path`.** The path stays relative to the review root (`repo1/src/a.ts`). Core walks up from the file to the root and uses the nearest directory holding `.git`. `commit` and `blob` are per-repo SHAs, unambiguous once the repo is known. When the root is the repo toplevel nothing changes.
+- **Root inside a larger repo:** the enclosing repo is used for paths with no nearer `.git`, and core converts root-relative paths to toplevel-relative ones for repo calls.
+- **Submodules** are their own repo for anchoring, which replaces the earlier rejection of `160000` entries.
+- **One `git cat-file --batch` per repo**, not per tree.
+- **Orphans:** a thread whose repo is gone is orphaned, with a `Diagnostic` and its snapshot still shown. A path with no enclosing repo is `PATH_NOT_IN_REPO` when anchoring.
+- **Cost:** moving or renaming a repo directory orphans its threads, because the path changes.
