@@ -27,7 +27,8 @@ import type {
  *
  * Order for a `new`-side line thread:
  *   1. resolve the path (file on disk or override, else `git diff -M`
- *      renames, else an untracked file that holds the old content);
+ *      renames, else an untracked file that holds the old content or, for
+ *      anchors of 16+ non-whitespace characters, the anchored lines);
  *   2. blob still present: map lines with `git diff --no-index -U0 --histogram`
  *      (one diff per blob and path, shared by all threads of the call); when
  *      the diff says the anchored lines were deleted, look for them in the
