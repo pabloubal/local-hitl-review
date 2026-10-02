@@ -979,6 +979,66 @@ describe('drafts lock: review follow-ups', () => {
     return { tid, ids };
   }
 
+  it('a waiting submit with a different verdict or summary makes its own round', async () => {
+    await withCtx(async (c) => {
+      const { ids } = await addDrafts(c, 2);
+      let pa: Promise<SubmitRoundResult> | undefined;
+      let pb: Promise<SubmitRoundResult> | undefined;
+      await contend(c.repo.root, 2, () => {
+        pa = c.tree.submitRound({ verdict: 'approve', summary: '', author: HUMAN });
+        pb = c.tree.submitRound({ verdict: 'request-changes', summary: 'fix', author: HUMAN });
+      });
+      const [a, b] = await Promise.all([pa, pb]);
+      assert.ok(a && b);
+      assert.notEqual(a.roundId, b.roundId);
+      assert.equal(a.resumed || b.resumed, false);
+      assert.deepEqual([...a.messageIds, ...b.messageIds].sort(), ids.slice().sort());
+      assert.equal(a.messageIds.length === 0 || b.messageIds.length === 0, true);
+      const rounds = await c.ls('.lhr/rounds');
+      assert.equal(rounds.length, 2);
+      const texts = await Promise.all(rounds.map((r) => c.read(`.lhr/rounds/${r}`)));
+      assert.equal(
+        texts.some((t) => t.includes('verdict: approve')),
+        true,
+      );
+      assert.equal(
+        texts.some((t) => t.includes('verdict: request-changes') && t.endsWith('fix\n')),
+        true,
+      );
+    });
+  });
+
+  it('a submit that did not wait for the lock never joins a round', async () => {
+    await withCtx(async (c) => {
+      const { ids } = await addDrafts(c, 1);
+      const reached = deferred();
+      const gate = deferred();
+      lockSeams.beforeAcquire = async (op) => {
+        if (op !== 'submitRound') return;
+        reached.resolve();
+        await gate.promise;
+      };
+      let result: SubmitRoundResult;
+      try {
+        const submit = c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
+        await reached.promise;
+        // A round that appears between the listing and the lock, without contention.
+        await mkdir(`${c.repo.root}/.lhr/rounds`, { recursive: true });
+        await writeFile(
+          `${c.repo.root}/.lhr/rounds/20261001T110000Z-other2.md`,
+          '---\nverdict: comment\nauthor.kind: human\nauthor.name: LHR Test\n---\ns\n',
+        );
+        gate.resolve();
+        result = await submit;
+      } finally {
+        resetLockSeams();
+      }
+      assert.equal(result.resumed, false);
+      assert.notEqual(result.roundId, '20261001T110000Z-other2');
+      assert.deepEqual(result.messageIds, ids);
+    });
+  });
+
   it('serialises two breakers of one dead lock; a live lock is never moved', async () => {
     await withCtx(async (c) => {
       await mkdir(`${c.repo.root}/.lhr/drafts`, { recursive: true });

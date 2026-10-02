@@ -5,7 +5,7 @@ import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
 import { parseId, parseMessageFileName, parseMessageId } from './ids.js';
-import { withDraftsLock } from './lock.js';
+import { withDraftsLock, type LockInfo } from './lock.js';
 import type { Author, MessageView, Severity, ThreadStatus, ThreadView, Verdict } from './model.js';
 import type { Tree } from './tree.js';
 import {
@@ -58,7 +58,10 @@ export interface SubmitRoundResult {
   roundId: string;
   threadIds: string[];
   messageIds: string[];
-  /** true when this call finished an earlier, interrupted round */
+  /**
+   * true when this call finished an earlier, interrupted round, or when it waited for a
+   * concurrent submit with the same verdict and summary and returns that round
+   */
   resumed: boolean;
   /** invalid drafts left in drafts/ (empty when resuming) */
   skippedDraftIds: string[];
@@ -91,7 +94,11 @@ async function ensureDrafts(tree: Tree): Promise<void> {
 }
 
 /** Runs `fn` under the cross-process drafts lock (see lock.ts), creating `drafts/` first. */
-async function locked<T>(tree: Tree, op: string, fn: () => Promise<T>): Promise<T> {
+async function locked<T>(
+  tree: Tree,
+  op: string,
+  fn: (lock: LockInfo) => Promise<T>,
+): Promise<T> {
   await ensureDraftsRoot(tree);
   return withDraftsLock(tree.root, op, fn);
 }
@@ -476,9 +483,10 @@ async function publishThread(
  * listed, stay in `drafts/` and come back as `skippedDraftIds` (empty when resuming).
  *
  * The whole submit runs under the drafts lock, so concurrent submits (and draft edits)
- * are serialised on every file system. A submit that waited for a concurrent one which
- * wrote a new round joins it: it returns that round with `resumed: true` rather than
- * starting a second round. On file systems without hard links the no-partial-file
+ * are serialised on every file system. A submit that had to wait for the lock, and finds
+ * that a concurrent submit wrote a round with the same verdict and summary meanwhile,
+ * is a double submit: it returns that round with `resumed: true` rather than starting a
+ * second one. Otherwise it is an ordinary submit of the drafts left. On file systems without hard links the no-partial-file
  * guarantee is best-effort: an error-path unlink covers process errors, not a hard kill
  * mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against
  * process death; power loss is best-effort (files and directories are fsynced where the
@@ -494,7 +502,9 @@ export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<
   try {
     // Rounds written while this call waits for the lock belong to a concurrent submit.
     const before = new Set(await listRoundIds(tree));
-    return await locked(tree, 'submitRound', () => runRound(tree, round, before));
+    return await locked(tree, 'submitRound', (lock) =>
+      runRound(tree, round, lock.waited ? before : undefined),
+    );
   } catch (err) {
     if (err instanceof LhrError) throw err;
     throw new LhrError('IO_FAILED', `submitRound failed: ${(err as Error).message}`);
@@ -515,17 +525,42 @@ async function listRoundIds(tree: Tree): Promise<string[]> {
   }
 }
 
-/** Runs under the drafts lock: no other submit or draft edit can interleave. */
+/** The verdict and summary of a round file: what makes two submits the same submit. */
+function roundKey(text: string, rel: string): string | undefined {
+  const parsed = parseFrontmatter(text, rel);
+  if (parsed.diagnostics.length > 0) return undefined;
+  return JSON.stringify([parsed.data.verdict, parsed.body]);
+}
+
+/** The newest round not in `before` with the same verdict and summary as `roundContent`. */
+async function findDoubleSubmit(
+  tree: Tree,
+  roundContent: string,
+  before: Set<string>,
+): Promise<string | undefined> {
+  const key = roundKey(roundContent, 'submitted round');
+  const fresh = (await listRoundIds(tree)).filter((id) => !before.has(id)).sort().reverse();
+  for (const id of fresh) {
+    const text = await readOptional(path.join(roundsDir(tree), `${id}.md`));
+    if (text !== undefined && roundKey(text, `.lhr/rounds/${id}.md`) === key) return id;
+  }
+  return undefined;
+}
+
+/**
+ * Runs under the drafts lock: no other submit or draft edit can interleave.
+ * `roundsBefore` is set only when the call had to wait for the lock.
+ */
 async function runRound(
   tree: Tree,
   roundContent: string,
-  roundsBefore: Set<string>,
+  roundsBefore: Set<string> | undefined,
 ): Promise<SubmitRoundResult> {
   const markerFile = path.join(draftsDir(tree), MARKER);
   let marker = await readMarker(markerFile);
   const resumed = marker !== undefined;
-  if (marker === undefined) {
-    const joined = (await listRoundIds(tree)).filter((id) => !roundsBefore.has(id)).sort().pop();
+  if (marker === undefined && roundsBefore !== undefined) {
+    const joined = await findDoubleSubmit(tree, roundContent, roundsBefore);
     if (joined !== undefined) return roundResult(tree, joined, true, []);
   }
   await ensureDrafts(tree);
