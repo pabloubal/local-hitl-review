@@ -16,6 +16,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -36,6 +37,9 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     continue-on-error: true
+    # The suite takes ~2 min; Playwright's globalTimeout stops it at 10 so
+    # results still upload, and this caps install and setup on top.
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
