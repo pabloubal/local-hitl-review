@@ -911,7 +911,12 @@ describe('drafts lock', () => {
       try {
         await assert.rejects(
           c.tree.createDraftThread({ anchor: FILE_ANCHOR, body: 'q', author: HUMAN }),
-          (e) => e instanceof LhrError && e.code === 'IO_FAILED' && /locked/.test(e.message),
+          (e) =>
+            e instanceof LhrError &&
+            e.code === 'IO_FAILED' &&
+            /locked/.test(e.message) &&
+            e.message.includes('.lhr/drafts/.lock ') &&
+            e.message.includes('.lhr/drafts/.lock.break'),
         );
       } finally {
         resetLockSeams();
@@ -1005,6 +1010,24 @@ describe('drafts lock: review follow-ups', () => {
         texts.some((t) => t.includes('verdict: request-changes') && t.endsWith('fix\n')),
         true,
       );
+    });
+  });
+
+  it('waiting submits by different authors with the same verdict make two rounds', async () => {
+    await withCtx(async (c) => {
+      await addDrafts(c, 1);
+      const other: Author = { kind: 'human', name: 'Someone Else' };
+      let pa: Promise<SubmitRoundResult> | undefined;
+      let pb: Promise<SubmitRoundResult> | undefined;
+      await contend(c.repo.root, 2, () => {
+        pa = c.tree.submitRound({ verdict: 'approve', summary: 'ok', author: HUMAN });
+        pb = c.tree.submitRound({ verdict: 'approve', summary: 'ok', author: other });
+      });
+      const [a, b] = await Promise.all([pa, pb]);
+      assert.ok(a && b);
+      assert.notEqual(a.roundId, b.roundId);
+      assert.equal(a.resumed || b.resumed, false);
+      assert.equal((await c.ls('.lhr/rounds')).length, 2);
     });
   });
 

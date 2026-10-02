@@ -77,7 +77,7 @@ export const lockSeams: LockSeams = {
   timeoutMs: 5000,
   staleMs: 60_000,
   heartbeatMs: 10_000,
-  breakGuardStaleMs: 10_000,
+  breakGuardStaleMs: 2000, // well under timeoutMs: a breaker holds it for a few fs ops
   hostname,
   isAlive: processIsAlive,
   // Retries ride out transient EBUSY/EPERM (Windows virus scanners and indexers).
@@ -125,6 +125,41 @@ async function staleness(dir: string, owner: Owner | undefined): Promise<boolean
   }
 }
 
+function isOld(mtimeMs: number): boolean {
+  return Date.now() - mtimeMs > lockSeams.breakGuardStaleMs;
+}
+
+/** A unique path under `.lhr/drafts/.tmp/` to move a directory aside before deleting it. */
+async function asidePath(root: string, kind: string): Promise<string> {
+  const asideDir = path.join(draftsDir(root), '.tmp');
+  await mkdir(asideDir, { recursive: true });
+  return path.join(asideDir, `${kind}-${randomUUID()}`);
+}
+
+/**
+ * Removes a break guard left by a dead breaker. It is renamed aside first, so of two
+ * callers that judged it stale only one moves it; if what was moved turns out to be a
+ * fresh guard (the stale one was already replaced), it is put back.
+ */
+async function removeStaleGuard(root: string, guard: string): Promise<void> {
+  try {
+    if (!isOld((await stat(guard)).mtimeMs)) return;
+    const aside = await asidePath(root, 'lock-break');
+    await rename(guard, aside);
+    if (!isOld((await stat(aside)).mtimeMs)) {
+      try {
+        await rename(aside, guard);
+        return;
+      } catch {
+        // a newer guard is in place; drop the one we moved
+      }
+    }
+    await rm(aside, { recursive: true, force: true });
+  } catch (err) {
+    if (errCode(err) !== 'ENOENT') throw err;
+  }
+}
+
 /**
  * Tries to break a lock judged stale. Takes the break guard first (returns false when
  * another breaker holds it, removing a guard left by a dead breaker), re-verifies the
@@ -138,22 +173,14 @@ async function tryBreak(root: string, dir: string, op: string): Promise<boolean>
     await mkdir(guard);
   } catch (err) {
     if (errCode(err) !== 'EEXIST') throw err;
-    try {
-      if (Date.now() - (await stat(guard)).mtimeMs > lockSeams.breakGuardStaleMs) {
-        await rmdir(guard);
-      }
-    } catch (rmErr) {
-      if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(errCode(rmErr) ?? '')) throw rmErr;
-    }
+    await removeStaleGuard(root, guard);
     return false;
   }
   try {
     // The lock may have been released and retaken since it was judged: check again.
     const holder = await readOwner(dir);
     if ((await staleness(dir, holder)) !== true) return false;
-    const asideDir = path.join(draftsDir(root), '.tmp');
-    await mkdir(asideDir, { recursive: true });
-    const aside = path.join(asideDir, `lock-${randomUUID()}`);
+    const aside = await asidePath(root, 'lock');
     try {
       await rename(dir, aside);
     } catch (err) {
@@ -173,8 +200,8 @@ function busyMessage(owner: Owner | undefined): string {
     ? `pid ${owner.pid} on ${owner.hostname} since ${owner.acquiredAt}`
     : 'an unknown process';
   return (
-    `drafts are locked by ${who} (.lhr/drafts/.lock); try again, or delete that ` +
-    'directory if no lhr process is running'
+    `drafts are locked by ${who} (.lhr/drafts/.lock); try again, or, if no LHR process ` +
+    'is running, delete .lhr/drafts/.lock and .lhr/drafts/.lock.break'
   );
 }
 

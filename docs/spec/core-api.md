@@ -170,7 +170,7 @@ lhr.submitRound(input: {
 - `submitRound` works with zero drafts: a bare approve or request-changes writes only the round file.
 - It follows file-format-v2 § Submitting a review round. Before step 1 it writes `drafts/.submitting` holding the round ID. A rerun after an interruption finishes that same round instead of starting a second one, then deletes the marker.
 - Editing or discarding a submitted message throws `NOT_A_DRAFT`.
-- Every draft call (`createDraftThread`, `addDraftMessage`, `updateDraft`, `discardDraft`, `submitRound`) takes the drafts lock (file-format-v2 § Tree), so they never interleave, across processes too. A call that can't get the lock within about 5 seconds throws `IO_FAILED`. A `submitRound` that had to wait for the lock and finds that a concurrent submit wrote a round with the same verdict and summary treats it as a double submit: it returns that round with `resumed: true` instead of writing a second round. With a different verdict or summary it is an ordinary submit of the drafts that are left (none left means a bare round).
+- Every draft call (`createDraftThread`, `addDraftMessage`, `updateDraft`, `discardDraft`, `submitRound`) takes the drafts lock (file-format-v2 § Tree), so they never interleave, across processes too. A call that can't get the lock within about 5 seconds throws `IO_FAILED`. A `submitRound` that had to wait for the lock and finds that a concurrent submit wrote a round with the same author, verdict and summary treats it as a double submit: it returns that round with `resumed: true` instead of writing a second round. Otherwise it is an ordinary submit of the drafts that are left (none left means a bare round).
 
 ### Immediate writes
 

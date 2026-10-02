@@ -60,7 +60,7 @@ export interface SubmitRoundResult {
   messageIds: string[];
   /**
    * true when this call finished an earlier, interrupted round, or when it waited for a
-   * concurrent submit with the same verdict and summary and returns that round
+   * concurrent submit with the same author, verdict and summary and returns that round
    */
   resumed: boolean;
   /** invalid drafts left in drafts/ (empty when resuming) */
@@ -484,11 +484,11 @@ async function publishThread(
  *
  * The whole submit runs under the drafts lock, so concurrent submits (and draft edits)
  * are serialised on every file system. A submit that had to wait for the lock, and finds
- * that a concurrent submit wrote a round with the same verdict and summary meanwhile,
- * is a double submit: it returns that round with `resumed: true` rather than starting a
- * second one. Otherwise it is an ordinary submit of the drafts left. On file systems without hard links the no-partial-file
- * guarantee is best-effort: an error-path unlink covers process errors, not a hard kill
- * mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against
+ * that a concurrent submit wrote a round with the same author, verdict and summary
+ * meanwhile, is a double submit: it returns that round with `resumed: true` rather than
+ * starting a second one. Otherwise it is an ordinary submit of the drafts left. On file
+ * systems without hard links the no-partial-file guarantee is best-effort: an error-path
+ * unlink covers process errors, not a hard kill mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against
  * process death; power loss is best-effort (files and directories are fsynced where the
  * platform allows).
  */
@@ -525,14 +525,15 @@ async function listRoundIds(tree: Tree): Promise<string[]> {
   }
 }
 
-/** The verdict and summary of a round file: what makes two submits the same submit. */
+/** The author, verdict and summary of a round file: what makes two submits the same submit. */
 function roundKey(text: string, rel: string): string | undefined {
   const parsed = parseFrontmatter(text, rel);
   if (parsed.diagnostics.length > 0) return undefined;
-  return JSON.stringify([parsed.data.verdict, parsed.body]);
+  const { data } = parsed;
+  return JSON.stringify([data['author.kind'], data['author.name'], data.verdict, parsed.body]);
 }
 
-/** The newest round not in `before` with the same verdict and summary as `roundContent`. */
+/** The newest round not in `before` with the same author, verdict and summary. */
 async function findDoubleSubmit(
   tree: Tree,
   roundContent: string,
