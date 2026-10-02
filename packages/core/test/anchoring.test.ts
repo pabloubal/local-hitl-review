@@ -315,6 +315,16 @@ describe('LhrTree.anchors: deletes and moves (scenario 4)', () => {
     });
   });
 
+  it('4c: a block pasted as split hunks (blank line and brace paired) -> current, moved', async () => {
+    const blk = ['function foo() {', '  a();', '', '  b();', '}'];
+    const xs = Array.from({ length: 10 }, (_, i) => `x${i}`);
+    await withRepo({ 'a.ts': [...blk, ...xs, '', 'Y'] }, async (repo) => {
+      const t = await lineThread(repo, 'a.ts', 1, 5);
+      await repo.write('a.ts', text([...xs, ...blk, 'Y']));
+      await expectOne(repo, t, 'current 11-15', 'moved');
+    });
+  });
+
   it('4d: file deleted -> orphaned, method path', async () => {
     await withRepo({ 'a.ts': base30() }, async (repo) => {
       const t = await lineThread(repo, 'a.ts', 10, 12);
@@ -870,6 +880,16 @@ describe('LhrTree.anchors: robustness', () => {
       await unlink(path.join(repo.root, 'src/a.ts'));
       const r = await anchorOne(repo, t);
       assert.equal(fmt(r, t), 'current ok/other.txt:10-12');
+    });
+  });
+
+  it('probes at most 10x the candidate cap of untracked files', async () => {
+    await withRepo({ 'src/a.ts': base30() }, async (repo) => {
+      const t = await lineThread(repo, 'src/a.ts', 10, 12);
+      for (let i = 0; i < 2001; i++) await repo.write(`bin${i}/a.ts`, '\0binary\n');
+      await repo.write('ok/other.txt', text(base30()));
+      await unlink(path.join(repo.root, 'src/a.ts'));
+      await expectOne(repo, t, 'orphaned', 'path');
     });
   });
 
