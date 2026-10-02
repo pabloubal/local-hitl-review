@@ -7,3 +7,5 @@ esbuild.mjs
 *.map
 .vscode-test/**
 .feedback/**
+e2e/**
+e2e-results/**

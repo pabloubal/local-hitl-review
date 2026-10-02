@@ -520,9 +520,11 @@
     "test:unit": "node --test out/test/*.test.js",
     "test:integration": "vscode-test",
     "test": "npm run test:unit && npm run test:integration",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && tsc --noEmit -p e2e",
+    "test:e2e": "playwright test -c e2e"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.20.4",
     "@types/vscode": "^1.100.0",
