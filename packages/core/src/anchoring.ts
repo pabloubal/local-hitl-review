@@ -119,23 +119,23 @@ export async function computeAnchors(
   const groups = new Map<Repo, ThreadView[]>();
   for (const t of threads) {
     const p = t.anchor.path;
-    if (!isRelative(p)) {
-      out.set(t.id, { state: 'orphaned', path: p, method: methodFor(t.anchor) });
-      continue;
-    }
-    const repo = await lookup.forPath(p);
-    if (!repo) {
+    if (!isRootPath(p)) {
       out.set(t.id, {
         state: 'orphaned',
         path: p,
         method: methodFor(t.anchor),
         diagnostic: {
-          severity: 'warning',
-          code: DiagnosticCode.RepoMissing,
+          severity: 'error',
+          code: DiagnosticCode.InvalidValue,
           path: p,
-          message: `${p}: the git repository holding this path is missing`,
+          message: `${p}: anchor.path must be a root-relative POSIX path`,
         },
       });
+      continue;
+    }
+    const repo = await lookup.forPath(p);
+    if (!repo) {
+      out.set(t.id, repoMissing(t));
       continue;
     }
     const group = groups.get(repo);
@@ -146,39 +146,71 @@ export async function computeAnchors(
   for (const [repo, group] of groups) {
     const repoOverrides = new Map<string, string>();
     for (const [p, text] of overrides) {
-      if (isRelative(p) && (await lookup.forPath(p)) === repo) {
+      if (isRootPath(p) && (await lookup.forPath(p)) === repo) {
         repoOverrides.set(repo.toRepoPath(p), text);
       }
     }
-    const run = new AnchorRun(
-      { root: repo.top, gitPath: env.gitPath, git: repo.git },
-      repoOverrides,
-    );
-    try {
-      const local = group.map((t) => ({
-        ...t,
-        anchor: { ...t.anchor, path: repo.toRepoPath(t.anchor.path) },
-      })) as ThreadView[];
-      const results = await mapLimit(local, CONCURRENCY, (t) => run.resolve(t));
-      group.forEach((t, i) => {
-        const r = results[i] as AnchorResult;
-        const rootPath = repo.toRootPath(r.path);
-        out.set(
-          t.id,
-          rootPath === undefined
-            ? { state: 'orphaned', path: t.anchor.path, method: r.method }
-            : { ...r, path: rootPath },
+    // Held for the whole run, so a concurrent eviction can't close its process.
+    await repo.use(async () => {
+      const run = new AnchorRun(
+        { root: repo.top, gitPath: env.gitPath, git: repo.git },
+        repoOverrides,
+      );
+      try {
+        const local = group.map((t) => ({
+          ...t,
+          anchor: { ...t.anchor, path: repo.toRepoPath(t.anchor.path) },
+        })) as ThreadView[];
+        const results = await mapLimit(local, CONCURRENCY, async (t) =>
+          (await run.belongsHere(t.anchor)) ? run.resolve(t) : undefined,
         );
-      });
-    } finally {
-      await run.dispose();
-    }
+        group.forEach((t, i) => {
+          const r = results[i];
+          if (r === undefined) {
+            out.set(t.id, repoMissing(t));
+            return;
+          }
+          const rootPath = repo.toRootPath(r.path);
+          out.set(
+            t.id,
+            rootPath === undefined
+              ? { state: 'orphaned', path: t.anchor.path, method: r.method }
+              : { ...r, path: rootPath },
+          );
+        });
+      } finally {
+        await run.dispose();
+      }
+    });
   }
   return out;
 }
 
-function isRelative(rel: string): boolean {
-  return rel !== '' && !path.isAbsolute(rel) && !/[\0\r\n]/.test(rel);
+function repoMissing(t: ThreadView): AnchorResult {
+  const p = t.anchor.path;
+  return {
+    state: 'orphaned',
+    path: p,
+    method: methodFor(t.anchor),
+    diagnostic: {
+      severity: 'warning',
+      code: DiagnosticCode.RepoMissing,
+      path: p,
+      message: `${p}: the git repository holding this path is missing`,
+    },
+  };
+}
+
+/** Root-relative POSIX path with no empty, `.` or `..` segment (as file-format-v2 requires). */
+function isRootPath(rel: string): boolean {
+  return (
+    rel !== '' &&
+    !rel.includes('\\') &&
+    !rel.startsWith('/') &&
+    !/^[A-Za-z]:/.test(rel) &&
+    !/[\0\r\n]/.test(rel) &&
+    !rel.split('/').some((seg) => seg === '' || seg === '.' || seg === '..')
+  );
 }
 
 function methodFor(a: Anchor): AnchorResult['method'] {
@@ -200,6 +232,19 @@ class AnchorRun {
     if (!this.tmp) return;
     const dir = await this.tmp.catch(() => undefined);
     if (dir) await rm(dir, { recursive: true, force: true });
+  }
+
+  /**
+   * False when the anchor's saved commit is unknown here and this repo
+   * doesn't track the path either: the SHAs came from another repo that is
+   * gone (a nested repo whose `.git` was removed now falls to the enclosing
+   * one). A missing commit alone isn't enough: history rewrites and fresh
+   * clones lose commits while the path is still tracked.
+   */
+  async belongsHere(a: Anchor): Promise<boolean> {
+    if (!this.inRepo(a.path)) return true;
+    if (await this.hasCommit(a.commit)) return true;
+    return this.isTracked(a.path);
   }
 
   async resolve(thread: ThreadView): Promise<AnchorResult> {
@@ -489,6 +534,14 @@ class AnchorRun {
     return this.once(`obj:${rev}`, async () => {
       const obj = await this.env.git.read(rev);
       return obj?.type === 'blob' ? obj.content.toString('utf8') : undefined;
+    });
+  }
+
+  /** In this repo's index (a nested repo's files never are, even as a gitlink). */
+  private isTracked(rel: string): Promise<boolean> {
+    return this.once(`tracked:${rel}`, async () => {
+      const { stdout } = await this.git(['--literal-pathspecs', 'ls-files', '-z', '--', rel], []);
+      return stdout !== '';
     });
   }
 

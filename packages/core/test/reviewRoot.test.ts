@@ -2,10 +2,11 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { LhrError } from '../src/errors.js';
-import { openTree, type LhrTree } from '../src/tree.js';
+import { RepoSet } from '../src/repos.js';
+import { openTree, type LhrTree, type Tree } from '../src/tree.js';
 import { createTempDir, createTempRepo } from './helpers/tempRepo.js';
 
 const run = promisify(execFile);
@@ -369,5 +370,164 @@ describe('ThreadFilter.path prefix semantics', () => {
       assert.equal(paths('repo1').length, 3);
       assert.equal(paths(undefined).length, 3);
     });
+  });
+});
+
+describe('review root: symlinked repo', () => {
+  it('recognises a repo whose directory under the root is a symlink', async () => {
+    const outside = await createTempDir();
+    try {
+      await withRoot(async (root, open) => {
+        const real = path.join(outside.root, 'repo1');
+        const head = await initRepo(real, { 'src/a.ts': BODY });
+        await symlink(real, path.join(root, 'repo1'), 'dir');
+        const tree = await open();
+        const t = await tree.createThread({
+          anchor: { path: 'repo1/src/a.ts', kind: 'line', startLine: 3 },
+          body: 'x',
+          author: human,
+        });
+        const view = (await tree.load()).thread(t.threadId)!;
+        assert.equal(view.anchor.path, 'repo1/src/a.ts');
+        assert.equal(view.anchor.commit, head);
+        await write(real, 'src/a.ts', 'new\n' + BODY);
+        const r = (await tree.anchors([view])).get(t.threadId)!;
+        assert.equal(r.state, 'current');
+        assert.equal(r.path, 'repo1/src/a.ts');
+        assert.equal(r.startLine, 4);
+      });
+    } finally {
+      await outside.cleanup();
+    }
+  });
+});
+
+describe('review root: nested repo whose .git was removed', () => {
+  for (const sub of ['', 'ws']) {
+    it(`orphans its threads instead of using the enclosing repo (root ${sub || 'is the repo'})`, async () => {
+      const outer = await createTempRepo({ format: null });
+      try {
+        const root = path.join(outer.root, sub);
+        await write(root, '.lhr/format', '2\n');
+        await write(root, 'top.ts', BODY);
+        await outer.git('add', '.');
+        await outer.git('commit', '-q', '-m', 'init');
+        await initRepo(path.join(root, 'repo1'), { 'a.ts': BODY });
+        const tree = await openTree({ root });
+        try {
+          const mk = (p: string, kind: 'line' | 'file') =>
+            tree.createThread({
+              anchor: kind === 'line' ? { path: p, kind, startLine: 2 } : { path: p, kind },
+              body: 'x',
+              author: human,
+            });
+          const line = await mk('repo1/a.ts', 'line');
+          const file = await mk('repo1/a.ts', 'file');
+          const top = await mk('top.ts', 'line');
+          await rm(path.join(root, 'repo1/.git'), { recursive: true, force: true });
+          const res = await tree.anchors((await tree.load()).threads());
+          for (const id of [line.threadId, file.threadId]) {
+            const r = res.get(id)!;
+            assert.equal(r.state, 'orphaned');
+            assert.equal(r.path, 'repo1/a.ts');
+            assert.equal(r.diagnostic?.code, 'REPO_MISSING');
+            assert.equal(r.diagnostic?.path, 'repo1/a.ts');
+          }
+          assert.equal(res.get(top.threadId)!.state, 'current');
+          assert.equal(res.get(top.threadId)!.diagnostic, undefined);
+        } finally {
+          await tree.dispose();
+        }
+      } finally {
+        await outer.cleanup();
+      }
+    });
+  }
+});
+
+describe('review root: anchor paths that leave the root', () => {
+  it('orphans `..` paths with a diagnostic and never looks outside the root', async () => {
+    const dir = await createTempDir();
+    try {
+      const root = path.join(dir.root, 'ws');
+      await write(root, '.lhr/format', '2\n');
+      await initRepo(path.join(root, 'repo1'), { 'a.ts': BODY });
+      await initRepo(path.join(dir.root, 'x'), { 'a.ts': BODY });
+      const tree = await openTree({ root });
+      try {
+        const t = await tree.createThread({
+          anchor: { path: 'repo1/a.ts', kind: 'line', startLine: 2 },
+          body: 'x',
+          author: human,
+        });
+        const view = (await tree.load()).thread(t.threadId)!;
+        const bad = ['../x/a.ts', 'repo1/../../x/a.ts', './repo1/a.ts'].map((p, i) => ({
+          ...view,
+          id: `bad${i}`,
+          anchor: { ...view.anchor, path: p },
+        }));
+        const res = await tree.anchors(bad);
+        for (const v of bad) {
+          const r = res.get(v.id)!;
+          assert.equal(r.state, 'orphaned', v.anchor.path);
+          assert.equal(r.path, v.anchor.path);
+          assert.equal(r.diagnostic?.code, 'INVALID_VALUE', v.anchor.path);
+        }
+      } finally {
+        await tree.dispose();
+      }
+    } finally {
+      await dir.cleanup();
+    }
+  });
+});
+
+describe('review root: repo evicted while in use', () => {
+  it('keeps a Repo usable by in-flight callers when its .git disappears', async () => {
+    await withRoot(async (root) => {
+      const head = await initRepo(path.join(root, 'repo1'), { 'a.ts': BODY });
+      const set = new RepoSet(root, 'git');
+      try {
+        const repo = (await set.forPath('repo1/a.ts'))!;
+        await repo.use(async () => {
+          assert.equal((await repo.git.read('HEAD'))?.type, 'commit');
+          await rename(path.join(root, 'repo1/.git'), path.join(root, 'repo1/.git-off'));
+          assert.equal(await set.forPath('repo1/a.ts'), undefined);
+          await rename(path.join(root, 'repo1/.git-off'), path.join(root, 'repo1/.git'));
+          assert.equal((await repo.git.read(head))?.type, 'commit');
+        });
+      } finally {
+        await set.dispose();
+      }
+    });
+  });
+
+  it('Tree.git still works after the root repo was evicted and came back', async () => {
+    const repo = await createTempRepo();
+    try {
+      await repo.write('a.ts', BODY);
+      await repo.git('add', '.');
+      await repo.git('commit', '-q', '-m', 'init');
+      const tree = (await openTree({ root: repo.root })) as Tree;
+      try {
+        const t = await tree.createThread({
+          anchor: { path: 'a.ts', kind: 'file' },
+          body: 'x',
+          author: human,
+        });
+        assert.equal((await tree.git.read('HEAD'))?.type, 'commit');
+        await rename(path.join(repo.root, '.git'), path.join(repo.root, '.git-off'));
+        const gone = await tree.anchors((await tree.load()).threads());
+        assert.equal(gone.get(t.threadId)!.state, 'orphaned');
+        await rename(path.join(repo.root, '.git-off'), path.join(repo.root, '.git'));
+        assert.equal((await tree.git.read('HEAD'))?.type, 'commit');
+        const back = await tree.anchors((await tree.load()).threads());
+        assert.equal(back.get(t.threadId)!.state, 'current');
+      } finally {
+        await tree.dispose();
+      }
+    } finally {
+      await repo.cleanup();
+    }
   });
 });

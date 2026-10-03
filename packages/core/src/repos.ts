@@ -13,12 +13,19 @@ import { GitBatch, GitExitError, runGit } from './git.js';
 /** One git repo under (or enclosing) the review root. */
 export class Repo {
   private batch: GitBatch | undefined;
+  private users = 0;
+  private retired = false;
 
   constructor(
     /** Real path of the repo's working tree. */
     readonly top: string,
     private readonly realRoot: string,
     private readonly gitPath: string,
+    /**
+     * Where the working tree sits as seen from the root: under the real root,
+     * possibly through a symlink, so it may differ from `top`.
+     */
+    private readonly dir: string = top,
   ) {}
 
   /** Long-lived `git cat-file --batch`, started on first use. */
@@ -27,20 +34,48 @@ export class Repo {
     return this.batch;
   }
 
+  /**
+   * Runs `fn` while holding the repo: a concurrent eviction (its `.git`
+   * vanished) defers closing the cat-file process until `fn` settles.
+   */
+  async use<T>(fn: () => Promise<T>): Promise<T> {
+    this.users++;
+    try {
+      return await fn();
+    } finally {
+      this.users--;
+      if (this.retired && this.users === 0) await this.close();
+    }
+  }
+
   /** Root-relative POSIX path -> repo-relative POSIX path. */
   toRepoPath(rel: string): string {
-    return posix(path.relative(this.top, path.join(this.realRoot, rel)));
+    return posix(path.relative(this.dir, path.join(this.realRoot, rel)));
   }
 
   /** Repo-relative POSIX path -> root-relative, or undefined when outside the root. */
   toRootPath(repoRel: string): string | undefined {
-    const out = posix(path.relative(this.realRoot, path.join(this.top, repoRel)));
+    const out = posix(path.relative(this.realRoot, path.join(this.dir, repoRel)));
     if (out === '' || out === '..' || out.startsWith('../') || path.isAbsolute(out)) {
       return undefined;
     }
     return out;
   }
 
+  /** @internal Evicted from the set: close the process once no caller holds it. */
+  retire(): Promise<void> {
+    this.retired = true;
+    return this.users === 0 ? this.close() : Promise.resolve();
+  }
+
+  /** Closes the cat-file process; a later `git` access starts a new one. */
+  private close(): Promise<void> {
+    const batch = this.batch;
+    this.batch = undefined;
+    return batch ? batch.dispose() : Promise.resolve();
+  }
+
+  /** Final: the process is closed and later reads reject with GIT_FAILED. */
   dispose(): Promise<void> {
     return this.batch ? this.batch.dispose() : Promise.resolve();
   }
@@ -61,6 +96,8 @@ async function exists(p: string): Promise<boolean> {
 
 export class RepoSet {
   private readonly repos = new Map<string, Repo>();
+  /** Evicted repos a caller may still hold (Tree's root repo); closed on dispose. */
+  private readonly retired = new Set<Repo>();
   private real: Promise<string> | undefined;
 
   constructor(
@@ -94,12 +131,15 @@ export class RepoSet {
     if (!(await exists(path.join(dir, '.git')))) {
       if (known) {
         this.repos.delete(dir);
-        await known.dispose();
+        this.retired.add(known);
+        await known.retire();
       }
       return undefined;
     }
     if (known) return known;
-    // A stray or broken `.git` doesn't make a repo: git must agree on the toplevel.
+    // A stray or broken `.git` doesn't make a repo: git must agree on the
+    // toplevel. `dir` may pass through a symlink below the root, so compare
+    // real paths.
     let top: string;
     try {
       top = await realpath((await runGit(this.gitPath, dir, ['rev-parse', '--show-toplevel'])).trim());
@@ -107,8 +147,9 @@ export class RepoSet {
       if (err instanceof GitExitError) return undefined;
       throw err;
     }
-    if (top !== dir) return undefined;
-    const repo = new Repo(top, await this.realRoot(), this.gitPath);
+    const realDir = await realpath(dir).catch(() => undefined);
+    if (top !== realDir) return undefined;
+    const repo = new Repo(top, await this.realRoot(), this.gitPath, dir);
     this.repos.set(dir, repo);
     return repo;
   }
@@ -131,8 +172,9 @@ export class RepoSet {
   }
 
   async dispose(): Promise<void> {
-    const all = [...this.repos.values()];
+    const all = [...this.repos.values(), ...this.retired];
     this.repos.clear();
+    this.retired.clear();
     await Promise.all(all.map((r) => r.dispose()));
   }
 }

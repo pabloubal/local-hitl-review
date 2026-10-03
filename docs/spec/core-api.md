@@ -114,14 +114,16 @@ interface AnchorResult {
   endLine?: number;
   fromBranch?: string; // "from branch X" label, only while X exists
   method: "diff" | "text-search" | "moved" | "path" | "pinned";
-  diagnostic?: Diagnostic; // set with code REPO_MISSING when the thread's repo is gone
+  diagnostic?: Diagnostic; // REPO_MISSING when the thread's repo is gone, INVALID_VALUE for a bad anchor.path
 }
 ```
 
 - **Batched**, so all threads on a file share one diff: 200 threads went from 8.6 s to 1.1 s in the re-anchoring prototype. The algorithm is in [ADR 0006](../adr/0006-comment-anchoring.md).
 - `overrides` replaces the on-disk content of a path, so the extension can re-anchor while a document has unsaved changes.
 - **`old`-side threads aren't re-anchored.** They keep their saved lines against `anchor.commit` and report `current` with `method: "pinned"`. If the commit is unreachable and the snapshot can't be found, they report `orphaned`.
-- A thread whose repo is gone (directory removed or no longer a repo) is `orphaned` with a `Diagnostic` (code `REPO_MISSING`, severity `warning`) in `AnchorResult.diagnostic`, and its snapshot is still shown. Reads never throw for it.
+- A thread whose repo is gone (directory removed or no longer a repo) is `orphaned` with a `Diagnostic` (code `REPO_MISSING`, severity `warning`) in `AnchorResult.diagnostic`, and its snapshot is still shown. Reads never throw for it. A thread doesn't record its repo, so "gone" also covers a repo found from the path that doesn't know the thread's `commit` and doesn't track its path: those SHAs came from a repo that no longer exists, for example a nested repo whose `.git` was removed so the path now falls to the enclosing repo. A missing commit alone isn't enough, since history rewrites and fresh clones lose commits while the path is still tracked.
+- An `anchor.path` that isn't a root-relative POSIX path (empty, absolute, or with an empty, `.` or `..` segment) is `orphaned` with an `INVALID_VALUE` diagnostic (severity `error`); no repo outside the root is consulted.
+- A repo directory under the root may be a symlink; its real path must be the repo's toplevel.
 - File threads report `current` while their file exists (after following renames), otherwise `orphaned`.
 
 ## Writing
