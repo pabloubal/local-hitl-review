@@ -41,8 +41,10 @@ export const COMMANDS: CommandHelp[] = [
     summary: 'List threads.',
     usage: 'lhr thread list [flags]',
     flags: [
+      ['--status open|resolved|all', 'Thread status (default: open)'],
       ['--whose-turn human|agent', 'Only threads waiting on this side'],
       ['--path <path>', 'Only threads anchored under this path'],
+      ['--round <id>', 'Only threads with a message in this review round'],
     ],
     examples: ['lhr thread list', 'lhr thread list --whose-turn agent --path src/auth --json'],
   },
@@ -50,8 +52,8 @@ export const COMMANDS: CommandHelp[] = [
     path: ['thread', 'show'],
     summary: 'Show one thread with its messages.',
     usage: 'lhr thread show <id> [flags]',
-    args: [['id', 'Thread handle or unambiguous prefix']],
-    examples: ['lhr thread show 20261002T1015', 'lhr thread show 20261002T101500Z-k3m9qz --json'],
+    args: [['id', 'Thread handle, full ID or unambiguous ID prefix']],
+    examples: ['lhr thread show k3m9', 'lhr thread show 20261002T101500Z-k3m9qz --json'],
   },
   {
     path: ['thread', 'create'],
