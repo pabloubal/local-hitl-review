@@ -212,6 +212,6 @@ This validates the whole tree, including `drafts/`, against the rules and JSON S
 
 ## Who writes as whom
 
-- **MCP server:** always an agent. `name` is the agent product, and `session` comes from the MCP client.
-- **CLI:** writes as an agent when the agent-session environment variable set by the plugin's `SessionStart` hook is present, otherwise as a human from git `user.name`. `--as human|agent` overrides it. Defaulting to the environment matters because an agent reply recorded as human would silently flip whose turn it is.
+- **MCP server (`lhr mcp`):** always an agent. `name` is `clientInfo.name` from the MCP handshake. `session` is the `LHR_SESSION_ID` environment variable, falling back to `CLAUDE_CODE_SESSION_ID`; MCP itself gives a stdio server no session ID. With neither set, no `session` is recorded. The ID is fixed when the process starts, so after `/clear` a long-lived server may report a stale session; this is accepted, since a nudge to a stale ID is harmless.
+- **CLI:** writes as an agent when `LHR_SESSION_ID` is set, otherwise as a human from git `user.name`. The plugin's `SessionStart` hook exports `LHR_SESSION_ID` through `CLAUDE_ENV_FILE`, so the agent's Bash tool sees it. As an agent, `author.name` is `--name`, then `LHR_AGENT_NAME`, then `claude-code`, and `author.session` is `LHR_SESSION_ID`. `--as human|agent` overrides the mode; `--as agent` without a session still writes, omits `session` and prints a warning (`lhr check` flags the gap). Defaulting to the environment matters because an agent reply recorded as human would silently flip whose turn it is.
 - **Extension:** always a human, through `humanAuthor()`.

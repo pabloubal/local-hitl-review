@@ -83,10 +83,10 @@ On success, every tool returns:
 
 Payloads (`data`), as defined in `cli.md` § Thread object:
 
-- **Reads** return threads with `id, status, severity, whoseTurn, reviewer, createdAt, location` (`file:line[-end]`) and the re-anchored `anchor` (`path, kind, side, startLine, endLine, state, method`). `thread_list` and `inbox` add `messageCount` and carry no bodies. `thread_show` adds `messages[]` and `snapshot`.
-- **Writes** return `{ thread, message: { id }, created }`. `created: false` means a `clientId` retry hit an existing message; it is still a success.
+- **Reads** return threads with `id, shortId, status, severity, whoseTurn, reviewer, createdAt, location` (`file:line[-end]`) and the re-anchored `anchor` (`path, kind, side, startLine, endLine, state, method`). `thread_list` and `inbox` add `messageCount` and carry no bodies. `thread_show` adds `messages[]` and `snapshot`.
+- **Writes** return the same `data` as the CLI (one shared serializer, see `cli.md` § Per-command `data`): `{ root, thread, message: { id }, created }` for `thread_create` and `thread_reply`, and `{ root, thread, message?, created, changed }` for `thread_resolve` and `thread_reopen`. `created: false` means a `clientId` retry hit an existing message; it is still a success. `thread` is the Thread object, including `shortId`.
 - `diagnostics` holds core's `problems` verbatim on `inbox`, `thread_list` and `thread_show` (`severity, code, path, line?, message`). A tree with broken files is still a success. Write tools return `diagnostics: []` unless the pre-write load found problems.
-- The resolved review root is included in `data` as `root` (absolute path), per issue 97 ("echoed in `--json` output").
+- The resolved review root is included in `data` as `root` (absolute path), per issue 97 ("echoed in `--json` output"). List results are `{ root, threads }`; `thread_show` is `{ root, thread }`.
 
 ## Tools
 
@@ -100,7 +100,7 @@ Open, submitted threads where it is the agent's turn, newest information first a
   z.object({ allSessions: z.boolean().optional() }).strict();
   ```
 - **Behaviour:** calls `snapshot.inbox({ session })` with the server's session. `allSessions: true`, or no session known, calls it with no `session`.
-- **Output `data`:** list of thread objects with `messageCount`, no bodies.
+- **Output `data`:** `{ root, threads }`, thread objects with `messageCount`, no bodies.
 
 ### `thread_list`
 
@@ -115,13 +115,13 @@ Open, submitted threads where it is the agent's turn, newest information first a
   }).strict();
   ```
 - **Behaviour:** `status: "all"` omits the core `status` filter.
-- **Output `data`:** list of thread objects with `messageCount`, no bodies.
+- **Output `data`:** `{ root, threads }`, thread objects with `messageCount`, no bodies.
 
 ### `thread_show`
 
 - **Description guidance:** "Show one thread: every message, the code snapshot it was written against, and where that code is now (location and anchor state: current, outdated or orphaned). `id` may be a unique prefix."
 - **Input:** `z.object({ id: z.string().min(1) }).strict()`.
-- **Output `data`:** one thread object with `messages[] { id, createdAt, author, body, round?, status?, severity? }` and `snapshot`.
+- **Output `data`:** `{ root, thread }`, one thread object with `messages[] { id, createdAt, author, body, round?, status?, severity? }` and `snapshot`.
 
 ### `thread_create`
 
@@ -163,7 +163,7 @@ Opens a new thread to flag something the agent is unsure about. Written immediat
 - **Description guidance:** "Mark a thread resolved. With `body`, posts that text as a reply and resolves in one step. Resolving an already resolved thread succeeds and does nothing."
 - **Input:** `z.object({ id: z.string().min(1), body: z.string().min(1).optional() }).strict()`.
 - **Behaviour:** with `body`, `reply(id, { body, author, status: "resolved" })`; without, `resolve(id, author)`. Idempotent: an already-resolved thread succeeds with no new message.
-- **Output `data`:** `{ thread, message: { id }, created }`. When nothing was written (`changed: false`), `message` is `null`/absent and `created` is `false` (see [Open gaps](#open-gaps)).
+- **Output `data`:** `{ root, thread, message?, created, changed }`, as in `cli.md`. When nothing was written (`changed: false`), `message` is absent and `created` is `false`.
 
 ### `thread_reopen`
 
@@ -197,7 +197,7 @@ A failure is a tool result with `isError: true`, never a JSON-RPC error. Its sin
 | `FORMAT_MISSING`, `FORMAT_VERSION` | `.lhr/format` unreadable or from a newer version                                                           | none                                                                                             |
 | `THREAD_NOT_FOUND`                 | no thread matches `id`                                                                                     | `thread_list {"status":"open"}`                                                                  |
 | `MESSAGE_NOT_FOUND`                | core reports a missing message                                                                             | as in `cli.md`                                                                                   |
-| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | none                                                                                             |
+| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | `thread_create {"path":"<root-relative path>","line":1}`                                         |
 | `GIT_FAILED`, `IO_FAILED`          | environment failure                                                                                        | none                                                                                             |
 
 `DRAFT_NOT_FOUND` and `NOT_A_DRAFT` cannot occur: no tool touches drafts.
@@ -230,18 +230,16 @@ Packaging and plugin wiring belong to the release and plugin tickets.
 
 ## Open gaps
 
-Each needs a decision or a doc fix; none is guessed above except where marked "(see Open gaps)".
+Each needs a decision or a doc fix.
 
-1. **`core-api.md` § Who writes as whom** still says the MCP `session` "comes from the MCP client". Issue 98 says it is corrected on branch `worktree-wayfinder-98-agent-identity` (commit e645db2), but it is not on `main`. This spec follows issue 98.
-2. **`NOT_A_REPO` vs `NOT_FOUND`.** Issue 97 says a missing `.lhr/` is a "`NOT_FOUND`-style error with the example `lhr init --repo <path>`"; issue 100 lists `NOT_A_REPO` (exit 2) and issue 102 says it carries no `example` over MCP. This spec uses `NOT_A_REPO` with no `example`. `cli.md` must agree.
 3. **Agent name fallback.** Issue 98 gives the MCP name only as `clientInfo.name`. Not defined: the name when the client sends an empty `clientInfo.name`, and whether `LHR_AGENT_NAME` or a `--name` flag applies to `lhr mcp` (the CLI has both).
-4. **Write payload when nothing changes.** `resolve()`/`reopen()` return `{ messageId?, changed }`, but the `{ thread, message: { id }, created }` envelope has no `changed` and `message.id` may not exist. Needs a `cli.md` decision (for example `message: null`, `created: false`).
-5. **`data` shape for lists.** The envelope forbids a bare top-level array; whether `data` is the array itself or `{ threads: [...] }` (and whether `inbox` differs) is defined by `cli.md`, which is not written yet. The `root` field in `data` (issue 97 says the root is echoed) also needs a place in that shape, which matters for array-valued `data`.
-6. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one.
-7. **Schema failures.** Issue 102 says the implementation must check what the SDK returns for invalid arguments and wrap it; unverified. Also unverified: whether the SDK skips `outputSchema` validation for `isError` results, and whether an error result should also carry `structuredContent` (this spec: text content only).
-8. **`/clear` staleness** of the session variable in a long-lived process is accepted but untested (issues 95, 98). `CLAUDE_CODE_SESSION_ID` is documented only in a changelog (anthropics/claude-code#63305).
-9. **Server `name` and `version`** are not stated in any issue; `lhr` is implied by the `mcp__lhr__` tool namespace and the package version is assumed.
-10. **Concurrent calls and multiple trees.** Not specified: whether calls are serialized, and when to dispose a tree for a root that has gone away. This spec keeps all trees until exit and does not serialize reads.
-11. **Non-git roots (issue 105)** require the core change (`openTree` checking `.lhr/format`, per-repo blob reads). `thread_create` on such roots depends on it, and `PATH_NOT_IN_REPO` is not yet in `core-api.md`'s error list.
-12. **`ThreadFilter.path`** semantics ("exact or directory prefix", issue 99) are not yet in `core-api.md`.
-13. **ADR 0002** still lists `review start`, `doctor`, `migrate`; issue 99 asks for it to be updated when `cli.md` lands.
+4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one.
+5. **Schema failures.** Issue 102 says the implementation must check what the SDK returns for invalid arguments and wrap it; unverified. Also unverified: whether the SDK skips `outputSchema` validation for `isError` results, and whether an error result should also carry `structuredContent` (this spec: text content only).
+6. **`/clear` staleness** of the session variable in a long-lived process is accepted but untested (issues 95, 98). `CLAUDE_CODE_SESSION_ID` is documented only in a changelog (anthropics/claude-code#63305).
+7. **Server `name` and `version`** are not stated in any issue; `lhr` is implied by the `mcp__lhr__` tool namespace and the package version is assumed.
+8. **Concurrent calls and multiple trees.** Not specified: whether calls are serialized, and when to dispose a tree for a root that has gone away. This spec keeps all trees until exit and does not serialize reads.
+9. **`ThreadFilter.path`** semantics ("exact or directory prefix", issue 99) are not yet in `core-api.md`.
+
+### Resolved
+
+Covered by `cli.md`, `core-api.md` and ADR 0002 now on `main`: identity wording in `core-api.md` (issue 98), `NOT_A_REPO` without an `example`, the no-op write payload (`message` absent, `created: false`, `changed: false`), list `data` shape with `root`, `PATH_NOT_IN_REPO` and non-git roots (issue 105), and ADR 0002's command list.
