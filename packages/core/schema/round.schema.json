@@ -28,6 +28,10 @@
     "author.name": {
       "type": "string",
       "description": "As on messages"
+    },
+    "clientId": {
+      "type": "string",
+      "description": "Caller-chosen ID, unique among rounds; a submit with a clientId an existing round has returns that round"
     }
   },
   "additionalProperties": true

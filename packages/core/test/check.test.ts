@@ -305,6 +305,30 @@ describe('check()', () => {
     expectOnly(diags, 'DUPLICATE_CLIENT_ID', `${THREAD_DIR}/${m3}.md`);
   });
 
+  it('errors on two rounds sharing a clientId, and allows distinct ones', async () => {
+    const r2 = '20260102T100000Z-rrrrrr';
+    const r3 = '20260103T100000Z-gggggg';
+    const withId = (id: string): string =>
+      ROUND.replace('---\nsummary', `clientId: ${id}\n---\nsummary`);
+    const diags = await run(async (r) => {
+      await r.write(`.lhr/rounds/${R1}.md`, withId('abc'));
+      await r.write(`.lhr/rounds/${r2}.md`, withId('abc'));
+      await r.write(`.lhr/rounds/${r3}.md`, withId('other'));
+    });
+    expectOnly(diags, 'DUPLICATE_CLIENT_ID', `.lhr/rounds/${r2}.md`);
+  });
+
+  it('accepts a round with a clientId and one without', async () => {
+    const diags = await run(async (r) => {
+      await r.write(
+        `.lhr/rounds/${R1}.md`,
+        ROUND.replace('---\nsummary', 'clientId: abc\n---\nsummary'),
+      );
+      await r.write('.lhr/rounds/20260102T100000Z-rrrrrr.md', ROUND);
+    });
+    assert.deepEqual(diags, []);
+  });
+
   it('allows the same clientId in different threads', async () => {
     const t2 = '20260102T100000Z-bbbbbb';
     const diags = await run(async (r) => {

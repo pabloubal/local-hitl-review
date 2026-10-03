@@ -52,6 +52,8 @@ export interface SubmitRoundInput {
   verdict: Verdict;
   summary: string;
   author: Author;
+  /** Caller-chosen ID, stored on the round file; a retry with a known one returns that round. */
+  clientId?: string;
 }
 
 export interface SubmitRoundResult {
@@ -59,8 +61,14 @@ export interface SubmitRoundResult {
   threadIds: string[];
   messageIds: string[];
   /**
-   * true when this call finished an earlier, interrupted round, or when it waited for a
-   * concurrent submit with the same author, verdict and summary and returns that round
+   * true exactly when this call wrote the round file; false when `clientId` matched an
+   * existing round (returned untouched) or an interrupted run had already written it
+   */
+  created: boolean;
+  /**
+   * true when this call finished an earlier, interrupted round (the returned one, or a
+   * foreign one before its own), or when it waited for a concurrent submit with the same
+   * author, verdict and summary and returns that round
    */
   resumed: boolean;
   /** invalid drafts left in drafts/ (empty when resuming) */
@@ -253,6 +261,8 @@ async function discardLocked(tree: Tree, id: string): Promise<void> {
 interface Marker {
   round: string;
   messages: string[];
+  /** the `clientId` of the submit that wrote the marker, if it had one */
+  clientId?: string;
 }
 
 /** An empty, unparseable or invalid marker counts as absent: nothing can depend on it yet. */
@@ -271,15 +281,20 @@ async function readMarker(file: string): Promise<Marker | undefined> {
     return undefined;
   }
   if (typeof value !== 'object' || value === null) return undefined;
-  const { round, messages } = value as { round?: unknown; messages?: unknown };
+  const { round, messages, clientId } = value as {
+    round?: unknown;
+    messages?: unknown;
+    clientId?: unknown;
+  };
   if (typeof round !== 'string' || !parseId(round)) return undefined;
   if (!Array.isArray(messages)) return undefined;
+  if (clientId !== undefined && typeof clientId !== 'string') return undefined;
   const ids: string[] = [];
   for (const m of messages) {
     if (typeof m !== 'string' || !parseMessageId(m)) return undefined;
     ids.push(m);
   }
-  return { round, messages: ids };
+  return { round, messages: ids, ...(clientId !== undefined ? { clientId } : {}) };
 }
 
 function roundText(input: SubmitRoundInput): string {
@@ -290,6 +305,7 @@ function roundText(input: SubmitRoundInput): string {
       verdict: input.verdict,
       'author.kind': input.author.kind,
       'author.name': input.author.name,
+      ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
     },
     body,
   );
@@ -470,7 +486,7 @@ async function publishThread(
  * Guarantee: no draft is ever lost, no file outside `drafts/` is ever partial, and no
  * message ever points at a missing round, whenever the process dies. Every file under
  * `threads/` and `rounds/` is written to a temp file, fsynced and hard-linked into place,
- * so it is absent or complete. `drafts/.submitting` (JSON `{ round, messages }`, written
+ * so it is absent or complete. `drafts/.submitting` (JSON `{ round, messages, clientId? }`, written
  * atomically) is created before anything else and fixes the round ID and the exact draft
  * messages in this round; the round file is written before any message; a draft is
  * deleted only after its submitted copy exists. Calling `submitRound` again while the
@@ -478,7 +494,10 @@ async function publishThread(
  * messages, ignores the new verdict and summary (they are used only if the round file
  * was never written), leaves drafts added since as drafts, and removes the marker. An
  * empty, unparseable or invalid marker counts as absent and is replaced, since nothing
- * can depend on it before the round file exists. Drafts that are invalid (a mismatched
+ * can depend on it before the round file exists. A marker is resumed only by a call
+ * with the same `clientId` (or both none; the round file's wins once written); any other
+ * call finishes it first if its round file exists, else replaces it, and then submits
+ * its own round. Drafts that are invalid (a mismatched
  * author kind, an empty body without status or severity, a broken thread) are not
  * listed, stay in `drafts/` and come back as `skippedDraftIds` (empty when resuming).
  *
@@ -498,12 +517,15 @@ export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<
   if (!VERDICTS.includes(input.verdict)) {
     throw invalid(`verdict must be approve, comment or request-changes: ${String(input.verdict)}`);
   }
+  if (input.clientId !== undefined && input.clientId.trim() === '') {
+    throw invalid('clientId must not be empty');
+  }
   const round = roundText(input);
   try {
     // Rounds written while this call waits for the lock belong to a concurrent submit.
     const before = new Set(await listRoundIds(tree));
     return await locked(tree, 'submitRound', (lock) =>
-      runRound(tree, round, lock.waited ? before : undefined),
+      runRound(tree, round, lock.waited ? before : undefined, input.clientId),
     );
   } catch (err) {
     if (err instanceof LhrError) throw err;
@@ -548,6 +570,17 @@ async function findDoubleSubmit(
   return undefined;
 }
 
+/** The ID of the round file that stores `clientId`, if any. */
+async function findRoundByClientId(tree: Tree, clientId: string): Promise<string | undefined> {
+  for (const id of (await listRoundIds(tree)).sort()) {
+    const text = await readOptional(path.join(roundsDir(tree), `${id}.md`));
+    if (text === undefined) continue;
+    const parsed = parseFrontmatter(text, `.lhr/rounds/${id}.md`);
+    if (parsed.diagnostics.length === 0 && parsed.data.clientId === clientId) return id;
+  }
+  return undefined;
+}
+
 /**
  * Runs under the drafts lock: no other submit or draft edit can interleave.
  * `roundsBefore` is set only when the call had to wait for the lock.
@@ -556,30 +589,89 @@ async function runRound(
   tree: Tree,
   roundContent: string,
   roundsBefore: Set<string> | undefined,
+  clientId?: string,
 ): Promise<SubmitRoundResult> {
   const markerFile = path.join(draftsDir(tree), MARKER);
   let marker = await readMarker(markerFile);
-  const resumed = marker !== undefined;
+  let resumed = false;
+  if (marker !== undefined) {
+    // An interrupted round is this call's own only if it has the same clientId (or both
+    // have none), so a caller's clientId, verdict and summary never land in another
+    // submit's round. A foreign round whose file exists is finished first; one without a
+    // round file has published nothing yet, so its marker is simply replaced.
+    const rel = `.lhr/rounds/${marker.round}.md`;
+    const text = await readOptional(path.join(tree.root, rel));
+    const owner = text !== undefined ? roundClientId(text, rel) : marker.clientId;
+    if (owner !== clientId) {
+      if (text !== undefined) {
+        await ensureDrafts(tree);
+        await cleanStaleTemps(tree);
+        await publishRound(tree, marker, await scanDrafts(tree));
+        resumed = true;
+      }
+      marker = undefined;
+    }
+  }
+  if (clientId !== undefined) {
+    // An idempotent retry: return the known round without touching drafts, unless it is
+    // this call's own interrupted round, which is finished below.
+    const known = await findRoundByClientId(tree, clientId);
+    if (known !== undefined && marker?.round !== known) {
+      return roundResult(tree, known, resumed, [], false);
+    }
+  }
   if (marker === undefined && roundsBefore !== undefined) {
     const joined = await findDoubleSubmit(tree, roundContent, roundsBefore);
-    if (joined !== undefined) return roundResult(tree, joined, true, []);
+    if (joined !== undefined) return roundResult(tree, joined, true, [], false);
   }
   await ensureDrafts(tree);
   await cleanStaleTemps(tree);
   let skippedDraftIds: string[] = [];
   const scan = await scanDrafts(tree);
   if (marker === undefined) {
-    // Absent or invalid: (re)write it. The lock makes a plain atomic replace safe, also
-    // on file systems without hard links.
-    marker = { round: tree.newId(), messages: scan.eligible };
+    // Absent, invalid or foreign: (re)write it. The lock makes a plain atomic replace
+    // safe, also on file systems without hard links.
+    marker = {
+      round: tree.newId(),
+      messages: scan.eligible,
+      ...(clientId !== undefined ? { clientId } : {}),
+    };
     await replaceAtomic(tree, markerFile, `${JSON.stringify(marker)}\n`);
     skippedDraftIds = scan.skipped;
+  } else {
+    resumed = true;
   }
-  const roundId = marker.round;
+  const created = await publishRound(tree, marker, scan, roundContent);
+  return roundResult(tree, marker.round, resumed, skippedDraftIds, created);
+}
 
-  await mkdir(roundsDir(tree), { recursive: true });
-  await createAtomic(tree, path.join(roundsDir(tree), `${roundId}.md`), roundContent);
+/** The `clientId` stored on a round file, if any. */
+function roundClientId(text: string, rel: string): string | undefined {
+  const parsed = parseFrontmatter(text, rel);
+  const value = parsed.diagnostics.length === 0 ? parsed.data.clientId : undefined;
+  return typeof value === 'string' ? value : undefined;
+}
 
+/**
+ * Finishes the marker's round: writes its round file from `roundContent` unless it exists,
+ * publishes the listed drafts and removes the marker. Returns true when this call wrote
+ * the round file.
+ */
+async function publishRound(
+  tree: Tree,
+  marker: Marker,
+  scan: Scan,
+  roundContent?: string,
+): Promise<boolean> {
+  let created = false;
+  if (roundContent !== undefined) {
+    await mkdir(roundsDir(tree), { recursive: true });
+    created = await createAtomic(
+      tree,
+      path.join(roundsDir(tree), `${marker.round}.md`),
+      roundContent,
+    );
+  }
   const byThread = new Map<string, string[]>();
   for (const id of marker.messages) {
     const threadId = scan.location.get(id);
@@ -587,11 +679,11 @@ async function runRound(
     byThread.set(threadId, [...(byThread.get(threadId) ?? []), id]);
   }
   for (const threadId of [...byThread.keys()].sort()) {
-    await publishThread(tree, threadId, byThread.get(threadId) ?? [], roundId);
+    await publishThread(tree, threadId, byThread.get(threadId) ?? [], marker.round);
   }
   await rmdirIfEmpty(draftThreadsDir(tree));
-  await rm(markerFile, { force: true });
-  return roundResult(tree, roundId, resumed, skippedDraftIds);
+  await rm(path.join(draftsDir(tree), MARKER), { force: true });
+  return created;
 }
 
 async function roundResult(
@@ -599,6 +691,7 @@ async function roundResult(
   roundId: string,
   resumed: boolean,
   skippedDraftIds: string[],
+  created: boolean,
 ): Promise<SubmitRoundResult> {
   const threadIds: string[] = [];
   const messageIds: string[] = [];
@@ -606,5 +699,5 @@ async function roundResult(
     if (thread.messages[0]?.round === roundId) threadIds.push(thread.id);
     for (const m of thread.messages) if (m.round === roundId) messageIds.push(m.id);
   }
-  return { roundId, threadIds, messageIds, resumed, skippedDraftIds };
+  return { roundId, threadIds, messageIds, created, resumed, skippedDraftIds };
 }
