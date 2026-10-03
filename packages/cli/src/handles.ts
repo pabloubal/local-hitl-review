@@ -66,6 +66,7 @@ export function resolveThreadId(
   throw new CliError(
     'INVALID_INPUT',
     `"${input}" matches ${matches.length} threads: ${shown}${more}`,
-    { see: opts.see, example },
+    // details.threadId lets other front ends (lhr mcp) build their own example.
+    { see: opts.see, example, details: { threadId: matches[0] } },
   );
 }

@@ -10,7 +10,8 @@ import type {
   TreeSnapshot,
 } from '../../../core/src/index.js';
 import { CliError } from '../errors.js';
-import { handles, resolveThread, threadJson, threadShowJson } from './serialize.js';
+import { resolveThreadId, shortIds } from '../handles.js';
+import { threadJson, threadShowJson, type ThreadItem } from '../render/thread.js';
 
 export interface ToolContext {
   /** Resolves the review root for this call and returns its (cached) tree. */
@@ -158,12 +159,33 @@ const write = (idempotentHint: boolean) =>
 
 const EXAMPLE_ID = 'k3m9';
 
-/** Thread objects for `threads`, re-anchored against the code on disk. */
-async function listed(tree: LhrTree, snap: TreeSnapshot, threads: ThreadView[]) {
-  const at = await tree.anchors(threads);
-  const h = handles(snap.threads());
-  return threads.map((t) => threadJson(t, at.get(t.id)!, h.get(t.id)!));
+// Agents never see drafts, so handles and ID resolution use submitted threads only
+// (`snap.threads()` without `includeDrafts`), as the CLI does in agent mode.
+
+/** A full ID, a prefix of one, or a handle -> one submitted thread (ADR 0007). */
+function resolveThread(snap: TreeSnapshot, input: string): ThreadView {
+  const id = resolveThreadId(
+    snap.threads().map((t) => t.id),
+    input,
+    { see: 'thread_list' },
+  );
+  return snap.thread(id)!;
 }
+
+/** Thread items for `threads`, re-anchored against the code on disk. */
+async function items(tree: LhrTree, snap: TreeSnapshot, threads: ThreadView[]) {
+  const at = await tree.anchors(threads);
+  const h = shortIds(snap.threads().map((t) => t.id));
+  return threads.map((view): ThreadItem => ({
+    view,
+    shortId: h.get(view.id)!,
+    anchor: at.get(view.id)!,
+  }));
+}
+
+/** List-shaped thread objects, the CLI's serializer (cli.md § Thread object). */
+const listed = async (tree: LhrTree, snap: TreeSnapshot, threads: ThreadView[]) =>
+  (await items(tree, snap, threads)).map(threadJson);
 
 /** Reloads after a write so the returned thread reflects it. */
 async function written(tree: LhrTree, threadId: string) {
@@ -290,8 +312,7 @@ export const TOOLS: ToolDef[] = [
       const { root, tree } = await ctx.open();
       const snap = await tree.load();
       const t = resolveThread(snap, args.id);
-      const at = await tree.anchors([t]);
-      const thread = threadShowJson(t, at.get(t.id)!, handles(snap.threads()).get(t.id)!);
+      const thread = threadShowJson((await items(tree, snap, [t]))[0]);
       return { root, data: { thread }, diagnostics: snap.problems };
     },
   },

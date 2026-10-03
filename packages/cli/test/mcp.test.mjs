@@ -11,6 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { binPath, build, lhr, mkRepo, pkgVersion, tmpDir } from './helper.mjs';
+import { IDS, fileThreadMd, messageMd, mkReviewedRepo, writeThread } from './thread-fixture.mjs';
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url));
 
@@ -352,7 +353,7 @@ test('thread_list: default open, status all, whoseTurn and path filters', async 
       a.threadId,
     ]);
     const file = ok(await call('thread_list', { status: 'all', path: 'README.md' })).threads[0];
-    assert.equal(file.location, 'README.md');
+    assert.equal(file.location, 'README.md (file)');
     assert.equal(file.anchor.kind, 'file');
     assert.equal(file.anchor.startLine, undefined);
   });
@@ -408,6 +409,104 @@ test('thread ids: unknown is THREAD_NOT_FOUND, ambiguous handle lists candidates
       list.map((t) => t.shortId),
       [one.threadId, two.threadId].map((id) => id.split('-')[1]),
     );
+  });
+});
+
+// ---- One serializer with the CLI (fixture: current, moved, orphaned, file, resolved, draft)
+
+/** The fixture plus a draft whose ID shares the file thread's 4-char handle. */
+function mkFixture() {
+  const dir = mkReviewedRepo();
+  writeThread(
+    dir,
+    '20261002T111000Z-n5n5aa',
+    {
+      'thread.md': fileThreadMd(dir, 'README.md'),
+      '20261002T111000Z-human-iiiiii.md': messageMd({ kind: 'human', name: 'p', body: 'd' }),
+    },
+    { draft: true },
+  );
+  return dir;
+}
+
+const cliData = (dir, args) => {
+  const r = lhr([...args, '--json'], { cwd: dir, env: { LHR_SESSION_ID: 's1' } });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout).data;
+};
+
+test('reads match the CLI agent-mode JSON byte for byte', async () => {
+  const dir = mkFixture();
+  await session({ start: dir }, async ({ call }) => {
+    const list = ok(await call('thread_list', { status: 'all' }));
+    assert.equal(
+      JSON.stringify(list),
+      JSON.stringify(cliData(dir, ['thread', 'list', '--status', 'all'])),
+    );
+    for (const id of [IDS.current, IDS.moved, IDS.orphan, IDS.file, IDS.resolved]) {
+      const show = ok(await call('thread_show', { id }));
+      assert.equal(JSON.stringify(show), JSON.stringify(cliData(dir, ['thread', 'show', id])), id);
+    }
+  });
+});
+
+test('anchors: file, outdated and orphaned locations, saved lines, handles', async () => {
+  const dir = mkFixture();
+  await session({ start: dir }, async ({ call }) => {
+    const by = Object.fromEntries(
+      ok(await call('thread_list', { status: 'all' })).threads.map((t) => [t.id, t]),
+    );
+    // Drafts take no part in agent-visible handles: n5n5aa is a draft.
+    assert.equal(by[IDS.file].shortId, 'n5n5');
+    assert.equal(by[IDS.file].location, 'README.md (file)');
+    assert.equal(by[IDS.moved].location, 'src/touch.ts:5');
+    assert.deepEqual(
+      [by[IDS.moved].anchor.state, by[IDS.moved].anchor.startLine, by[IDS.moved].anchor.endLine],
+      ['outdated', 5, 5],
+    );
+    assert.equal(by[IDS.orphan].location, 'src/legacy.ts:2');
+    assert.equal(by[IDS.orphan].anchor.state, 'orphaned');
+    assert.equal(by[IDS.orphan].anchor.startLine, undefined);
+    assert.equal(by[IDS.orphan].anchor.endLine, undefined);
+    const moved = ok(await call('thread_show', { id: IDS.moved })).thread;
+    assert.deepEqual([moved.savedStartLine, moved.savedEndLine], [3, 3]);
+    const orphan = ok(await call('thread_show', { id: IDS.orphan })).thread;
+    assert.deepEqual([orphan.savedStartLine, orphan.savedEndLine], [2, 2]);
+    const current = ok(await call('thread_show', { id: IDS.current })).thread;
+    assert.equal(current.savedStartLine, undefined);
+  });
+});
+
+test('drafts are invisible to every tool', async () => {
+  const dir = mkFixture();
+  await withTree(dir, (t) => t.addDraftMessage(IDS.moved, { body: 'draft reply', author: HUMAN }));
+  await session({ start: dir }, async ({ call }) => {
+    for (const [tool, args] of [
+      ['thread_list', { status: 'all' }],
+      ['inbox', {}],
+      ['inbox', { allSessions: true }],
+    ]) {
+      const ids = ok(await call(tool, args)).threads.map((t) => t.id);
+      assert.ok(!ids.includes(IDS.draft), tool);
+      assert.ok(!ids.some((id) => id.endsWith('n5n5aa')), tool);
+    }
+    err(await call('thread_show', { id: IDS.draft }), 'THREAD_NOT_FOUND');
+    err(await call('thread_show', { id: 'd4d4' }), 'THREAD_NOT_FOUND');
+    const moved = ok(await call('thread_show', { id: IDS.moved })).thread;
+    assert.equal(moved.messageCount, 1);
+    assert.deepEqual(
+      moved.messages.map((m) => m.body.trimEnd()),
+      ['Non-null assertion is unsafe here.'],
+    );
+  });
+});
+
+test('thread_list: round filter', async () => {
+  const dir = mkFixture();
+  await session({ start: dir }, async ({ call }) => {
+    const ids = async (args) => ok(await call('thread_list', args)).threads.map((t) => t.id);
+    assert.deepEqual(await ids({ status: 'all', round: '20261002T101400Z-r2r2r2' }), [IDS.current]);
+    assert.deepEqual(await ids({ status: 'all', round: '20261002T000000Z-nonono' }), []);
   });
 });
 
