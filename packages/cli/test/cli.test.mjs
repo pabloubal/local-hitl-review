@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { binMode, binPath, build, lhr, pkgVersion } from './helper.mjs';
+import { binMode, binPath, build, lhr, mkRepo, pkgVersion } from './helper.mjs';
 
 const COMMANDS = [
   ['init'],
@@ -82,25 +82,26 @@ test('unknown command exits 2 with a try: line on stderr', () => {
   assert.equal(r.status, 2);
   assert.equal(r.stdout, '');
   assert.match(r.stderr, /unknown command/);
-  assert.match(r.stderr, /^try: lhr --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr --help$/m);
   assert.ok(r.stderr.split('\n').length <= 4, 'does not dump full help');
 });
 
 test('unknown verb exits 2 pointing at the group help', () => {
   const r = lhr(['thread', 'frobnicate']);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /^try: lhr thread --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr thread --help$/m);
 });
 
 test('unknown flag exits 2 with a try: line', () => {
   const r = lhr(['inbox', '--nope']);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /^try: lhr inbox --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
 });
 
 test('recognised command without an implementation exits 2 and says so', () => {
-  const r = lhr(['inbox']);
+  const repo = mkRepo();
+  const r = lhr(['inbox'], { cwd: repo });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /not implemented/);
-  assert.match(r.stderr, /^try: lhr inbox --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
 });
