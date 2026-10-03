@@ -100,8 +100,8 @@ test('unknown flag exits 2 with a try: line', () => {
 
 test('recognised command without an implementation exits 2 and says so', () => {
   const repo = mkRepo();
-  const r = lhr(['inbox'], { cwd: repo });
+  const r = lhr(['mcp'], { cwd: repo });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /not implemented/);
-  assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr mcp --help$/m);
 });

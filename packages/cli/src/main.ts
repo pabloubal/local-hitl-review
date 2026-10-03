@@ -165,7 +165,7 @@ async function execute(
   } finally {
     await tree?.dispose();
   }
-  return EXIT.OK;
+  return ctx.exitCode ?? EXIT.OK;
 }
 
 // Ctrl-C: a newline on stderr, nothing on stdout (so no partial JSON), exit 130.
