@@ -1,3 +1,10 @@
+## [0.23.5](https://github.com/pabloubal/local-hitl-review/compare/v0.23.4...v0.23.5) (2026-10-03)
+
+
+### Bug Fixes
+
+* **core:** cross-process drafts lock and atomic draft threads ([#104](https://github.com/pabloubal/local-hitl-review/issues/104)) ([b4b7be9](https://github.com/pabloubal/local-hitl-review/commit/b4b7be945fbd426a6a988682478782198698a7dc)), closes [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80)
+
 ## [0.23.4](https://github.com/pabloubal/local-hitl-review/compare/v0.23.3...v0.23.4) (2026-10-03)
 
 
