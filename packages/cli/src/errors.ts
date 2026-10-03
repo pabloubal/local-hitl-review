@@ -101,6 +101,14 @@ const isLhrError = (e: unknown): e is LhrError =>
     e.name === 'LhrError' &&
     typeof (e as { code?: unknown }).code === 'string');
 
+/** First line, first sentence, no trailing period: parseArgs messages carry long hints. */
+export function oneLine(message: string): string {
+  return message
+    .split('\n')[0]
+    .split(/\.(?:\s|$)/)[0]
+    .trim();
+}
+
 /** Maps anything thrown to a code, message, example and exit status. */
 export function describeError(err: unknown, ctx: ErrorDetails = {}): RenderedError {
   if (isLhrError(err)) {
@@ -117,7 +125,13 @@ export function describeError(err: unknown, ctx: ErrorDetails = {}): RenderedErr
     };
   }
   const message = err instanceof Error ? err.message : String(err);
-  return { exit: EXIT.ENVIRONMENT, code: 'IO_FAILED', message };
+  // A bug, not a user error. The spec has no INTERNAL code, so keep exit 5 / IO_FAILED
+  // and say plainly what happened.
+  return {
+    exit: EXIT.ENVIRONMENT,
+    code: 'IO_FAILED',
+    message: `unexpected internal error: ${message}`,
+  };
 }
 
 /** Text form for stderr: `error: <message> (<CODE>)` then indented try:/see: lines. */

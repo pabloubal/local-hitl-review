@@ -37,7 +37,7 @@ export function lhr(args, opts = {}) {
   const { env: extra, ...rest } = opts;
   const res = spawnSync(process.execPath, [binPath, ...args], {
     encoding: 'utf8',
-    env: { ...env, NO_COLOR: '1', ...extra },
+    env: { ...env, NO_COLOR: '1', LHR_DEBUG: '1', ...extra },
     ...rest,
   });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
