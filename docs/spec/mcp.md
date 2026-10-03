@@ -61,7 +61,7 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 
 - **Names** are `snake_case`; **arguments** are `camelCase`, matching the CLI's JSON.
 - **`id`** accepts a full thread ID, a prefix of it, or a handle (4 to 6 characters of the random part; [ADR 0007](../adr/0007-thread-id-handles.md), rules in `cli.md` § Input conventions). An ambiguous handle or prefix is an `INVALID_INPUT` error whose message lists the candidates. Thread objects carry `shortId` (the handle) beside the full `id`.
-- **Input validation** is zod, `.strict()` objects: unknown arguments are rejected. A validation failure is returned as an `INVALID_INPUT` tool error (not a JSON-RPC error). The implementation ticket verifies what the SDK does by default and wraps it if needed.
+- **Input validation** is zod, `.strict()` objects: unknown arguments are rejected. A validation failure is returned as an `INVALID_INPUT` tool error (not a JSON-RPC error). Verified against `@modelcontextprotocol/sdk` 1.32: the high-level `McpServer` turns a schema failure into an `isError` result whose text is a plain `Input validation error: ...` string, not our error object, and it always advertises `tools.listChanged`. The server therefore uses the low-level `Server`, publishes the zod schemas as JSON Schema (draft-07) itself, and validates arguments in its own `tools/call` handler.
 - **`severity`** is `critical | high | medium | low`. **`side`** is `new | old`.
 - **Bodies** are markdown strings, passed directly as the `body` argument (the CLI's stdin form has no meaning here). Empty `body` is `INVALID_INPUT` wherever `body` is required.
 - **Annotations:** every tool sets `openWorldHint: false` and `destructiveHint: false`.
@@ -187,6 +187,7 @@ A failure is a tool result with `isError: true`, never a JSON-RPC error. Its sin
 }
 ```
 
+- **No `structuredContent` on errors.** Verified against SDK 1.32: the client skips the "must return structured content" check when `isError` is set, but validates any `structuredContent` it receives against the tool's `outputSchema`, even on an error result. An error object there would fail that check, so errors carry text content only.
 - `code` is a stable `LhrError` code; `message` and the structured example come from the single template table in [`cli.md`](cli.md) § Errors. The CLI renders the example as a command (`lhr thread list --status open`); MCP renders it as `<tool> <json-arguments>`. An MCP error must never show an `lhr ...` command string, since the agent has no shell.
 - The CLI exit-code table does not apply.
 - **Protocol errors** (JSON-RPC) are used only for unknown tools and malformed requests handled by the SDK.
@@ -233,8 +234,7 @@ Packaging and plugin wiring belong to the release and plugin tickets.
 
 Each needs a decision or a doc fix.
 
-4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one.
-5. **Schema failures.** Issue 102 says the implementation must check what the SDK returns for invalid arguments and wrap it; unverified. Also unverified: whether the SDK skips `outputSchema` validation for `isError` results, and whether an error result should also carry `structuredContent` (this spec: text content only).
+4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one. The first implementation returns the list-shaped object (no bodies); confirm when the CLI write commands land.
 6. **`/clear` staleness** of the session variable in a long-lived process is accepted but untested (issues 95, 98). `CLAUDE_CODE_SESSION_ID` is documented only in a changelog (anthropics/claude-code#63305).
 7. **Server `name` and `version`** are not stated in any issue; `lhr` is implied by the `mcp__lhr__` tool namespace and the package version is assumed.
 8. **Concurrent calls and multiple trees.** Not specified: whether calls are serialized, and when to dispose a tree for a root that has gone away. This spec keeps all trees until exit and does not serialize reads.
@@ -243,5 +243,7 @@ Each needs a decision or a doc fix.
 ### Resolved
 
 Covered by `cli.md`, `core-api.md` and ADR 0002 now on `main`: identity wording in `core-api.md` (issue 98), `NOT_A_REPO` without an `example`, the no-op write payload (`message` absent, `created: false`, `changed: false`), list `data` shape with `root`, `PATH_NOT_IN_REPO` and non-git roots (issue 105), and ADR 0002's command list.
+
+**Gap 5, schema failures and error results**, verified against `@modelcontextprotocol/sdk` 1.32 while building the server (issue 127): the high-level server reports schema failures as plain-text `isError` results, so the server validates arguments itself and returns `INVALID_INPUT` (see [Common behaviour](#common-behaviour)); the server skips `outputSchema` validation for `isError` results, but the client validates any `structuredContent` present, so error results carry text content only (see [Errors](#errors)).
 
 Accepted by the maintainer: **gap 3, agent name fallback.** The name is `LHR_AGENT_NAME` > `clientInfo.name` (trimmed) > `mcp-agent`; a write is never rejected over the name; there is no `--name` flag on `lhr mcp`. This amends issue 98 (see § Identity).
