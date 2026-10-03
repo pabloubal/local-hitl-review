@@ -272,6 +272,41 @@ describe('captureAnchor', () => {
     });
   });
 
+  it('rejects directory-style paths with a trailing slash or backslash on both sides', async () => {
+    await withRepo(async (_repo, env, head) => {
+      for (const p of ['src/', 'src\\']) {
+        for (const kind of ['line', 'file'] as const) {
+          await assert.rejects(
+            captureAnchor(env, { path: p, kind, side: 'old', baseCommit: head, startLine: 1 }),
+            invalid,
+          );
+          await assert.rejects(captureAnchor(env, { path: p, kind, startLine: 1 }), invalid);
+        }
+      }
+      const ok = await captureAnchor(env, {
+        path: 'src/a.ts',
+        kind: 'line',
+        side: 'old',
+        baseCommit: head,
+        startLine: 1,
+      });
+      assert.equal(ok.anchor.path, 'src/a.ts');
+    });
+  });
+
+  it('counts only \\n as a line break, so a lone \\r stays inside its line', async () => {
+    await withRepo(async (repo, env) => {
+      await repo.write('src/cr.ts', 'a\rb\nc\n');
+      const r = await captureAnchor(env, { path: 'src/cr.ts', kind: 'line', startLine: 2 });
+      assert.equal(r.snapshot, 'a\rb\nc');
+      assert.equal(r.anchor.kind === 'line' && r.anchor.contextBefore, 1);
+      await assert.rejects(
+        captureAnchor(env, { path: 'src/cr.ts', kind: 'line', startLine: 3 }),
+        invalid,
+      );
+    });
+  });
+
   it('rejects an old-side path that is a submodule at the commit', async () => {
     const sub = await createTempRepo();
     try {
