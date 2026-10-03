@@ -160,6 +160,8 @@ const write = (idempotentHint: boolean) =>
   ({ readOnlyHint: false, idempotentHint, destructiveHint: false, openWorldHint: false }) as const;
 
 const EXAMPLE_ID = 'k3m9';
+/** Body used in `thread_create` examples (a required argument, so every example has one). */
+export const EXAMPLE_BODY = 'Should this handle the empty case?';
 
 // Agents never see drafts, so handles and ID resolution use submitted threads only
 // (`snap.threads()` without `includeDrafts`), as the CLI does in agent mode.
@@ -342,7 +344,7 @@ export const TOOLS: ToolDef[] = [
     example: (d) => ({
       path: d.path ?? 'src/app.ts',
       line: 1,
-      body: 'Should this handle the empty case?',
+      body: EXAMPLE_BODY,
       clientId: 'question-1',
     }),
     async run(ctx, args: In<typeof createIn>) {

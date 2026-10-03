@@ -706,7 +706,11 @@ test('per-call root: lhr init while running, new threads visible next call', asy
     // A non-git root: creating a thread has no repo for the path.
     writeFileSync(join(dir, 'x.md'), 'x\n');
     const p = err(await call('thread_create', { path: 'x.md', body: 'q' }), 'PATH_NOT_IN_REPO');
-    assert.equal(p.example, 'thread_create {"path":"x.md","line":1}');
+    // The example is a complete call: thread_create requires a body.
+    assert.equal(
+      p.example,
+      'thread_create {"path":"x.md","line":1,"body":"Should this handle the empty case?"}',
+    );
   });
   const root = mkRoot();
   await session({ start: join(root, 'src') }, async ({ call }) => {

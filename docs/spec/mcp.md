@@ -199,7 +199,7 @@ A failure is a tool result with `isError: true`, never a JSON-RPC error. Its sin
 | `FORMAT_MISSING`, `FORMAT_VERSION` | `.lhr/format` unreadable or from a newer version                                                           | none                                                                                             |
 | `THREAD_NOT_FOUND`                 | no thread matches `id`                                                                                     | `thread_list {"status":"open"}`                                                                  |
 | `MESSAGE_NOT_FOUND`                | core reports a missing message                                                                             | as in `cli.md`                                                                                   |
-| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | `thread_create {"path":"<root-relative path>","line":1}`                                         |
+| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | `thread_create {"path":"<root-relative path>","line":1,"body":"<comment>"}`                      |
 | `GIT_FAILED`, `IO_FAILED`          | environment failure                                                                                        | none                                                                                             |
 
 `DRAFT_NOT_FOUND` and `NOT_A_DRAFT` cannot occur: no tool touches drafts.

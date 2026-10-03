@@ -14,7 +14,7 @@ import { openTree, type Author, type Host, type LhrTree } from '../../../core/sr
 import { discoverRoot } from '../context.js';
 import { CliError, describeError, type ErrorDetails } from '../errors.js';
 import { ENVELOPE_VERSION, successEnvelope } from '../output.js';
-import { TOOLS, type ToolContext, type ToolDef } from './tools.js';
+import { EXAMPLE_BODY, TOOLS, type ToolContext, type ToolDef } from './tools.js';
 
 export const DEFAULT_MCP_AGENT_NAME = 'mcp-agent';
 
@@ -66,7 +66,7 @@ export function toolError(err: unknown, tool: ToolDef, extra: ErrorDetails = {})
       if (d.threadId) example = call('thread_show', { id: d.threadId });
       break;
     case 'PATH_NOT_IN_REPO':
-      if (d.path) example = call('thread_create', { path: d.path, line: 1 });
+      if (d.path) example = call('thread_create', { path: d.path, line: 1, body: EXAMPLE_BODY });
       break;
   }
   const out: McpErrorBody = { code: e.code, message: e.message };
