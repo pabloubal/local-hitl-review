@@ -108,6 +108,7 @@ export function createLhrServer(opts: LhrServerOptions): LhrServer {
     { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   );
   const trees = new Map<string, Promise<LhrTree>>();
+  let disposed: Promise<void> | undefined;
 
   const ctx: ToolContext = {
     session,
@@ -121,6 +122,8 @@ export function createLhrServer(opts: LhrServerOptions): LhrServer {
           `no .lhr/ found from ${start}; ask the user to run \`lhr init\` (agents cannot create the review store)`,
         );
       }
+      // A tree opened after dispose would keep its git process, and so the process, alive.
+      if (disposed) throw new CliError('IO_FAILED', 'the lhr mcp server is shutting down');
       let tree = trees.get(root);
       if (!tree) {
         tree = openTree({ ...opts.host, root });
@@ -181,7 +184,6 @@ export function createLhrServer(opts: LhrServerOptions): LhrServer {
     }
   });
 
-  let disposed: Promise<void> | undefined;
   const dispose = () =>
     (disposed ??= (async () => {
       const open = [...trees.values()];

@@ -100,6 +100,7 @@ async function connect({ start, env = {}, clientName = 'test-client' } = {}) {
   return {
     client,
     call,
+    srv,
     async close() {
       await client.close();
       await srv.dispose();
@@ -240,6 +241,59 @@ test('binary: exits 0 when stdin closes, nothing on stdout', () => {
   const r = lhr(['mcp', '--repo', root], { input: '', timeout: 10_000 });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, '');
+});
+
+test('binary: calls in flight at EOF are answered before exit (reads and writes)', async () => {
+  const root = mkRoot();
+  const { threadId } = await humanThread(root);
+  const frame = (o) => `${JSON.stringify({ jsonrpc: '2.0', ...o })}\n`;
+  const input = [
+    frame({
+      id: 1,
+      method: 'initialize',
+      params: {
+        protocolVersion: '2025-06-18',
+        capabilities: {},
+        clientInfo: { name: 'pipe', version: '1' },
+      },
+    }),
+    frame({ method: 'notifications/initialized' }),
+    frame({
+      id: 2,
+      method: 'tools/call',
+      params: { name: 'thread_show', arguments: { id: threadId } },
+    }),
+    frame({
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'thread_reply', arguments: { id: threadId, body: 'on it' } },
+    }),
+  ].join('');
+  // stdin closes right after the last frame, while both calls are still running.
+  const r = lhr(['mcp', '--repo', root], { input, timeout: 10_000 });
+  assert.equal(r.status, 0, r.stderr);
+  const replies = r.stdout
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+  const byId = Object.fromEntries(replies.map((m) => [m.id, m]));
+  assert.deepEqual(Object.keys(byId).sort(), ['1', '2', '3'], r.stdout);
+  assert.equal(byId[2].result.isError, undefined, JSON.stringify(byId[2]));
+  assert.equal(byId[2].result.structuredContent.data.thread.id, threadId);
+  assert.equal(byId[3].result.isError, undefined, JSON.stringify(byId[3]));
+  assert.equal(byId[3].result.structuredContent.data.thread.messageCount, 2);
+  const after = await withTree(root, async (t) => (await t.load()).thread(threadId));
+  assert.equal(after.messages.length, 2, 'the write landed');
+});
+
+test('after dispose a call fails instead of opening a tree that outlives the server', async () => {
+  const root = mkRoot();
+  await session({ start: root }, async ({ call, srv }) => {
+    ok(await call('inbox'));
+    await srv.dispose();
+    const e = err(await call('inbox'), 'IO_FAILED');
+    assert.match(e.message, /shutting down/);
+  });
 });
 
 // ---- Reads

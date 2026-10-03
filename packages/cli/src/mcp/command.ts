@@ -2,6 +2,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Command } from '../commands.js';
 import { warn } from '../output.js';
+import { trackInFlight } from './drain.js';
 import { createLhrServer } from './server.js';
 
 declare const __LHR_VERSION__: string;
@@ -23,7 +24,9 @@ export const mcpCommand: Command = {
       transport.onclose = done;
     });
     await server.connect(transport);
-    process.stdin.once('end', () => void server.close());
+    // Closing aborts running handlers and drops their responses, so wait for them first.
+    const inFlight = trackInFlight(transport);
+    process.stdin.once('end', () => void inFlight.idle().then(() => server.close()));
     await closed;
     await dispose();
   },
