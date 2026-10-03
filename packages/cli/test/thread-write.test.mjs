@@ -144,7 +144,7 @@ test('reply (human): draft; --client-id exit 2', () => {
   assert.equal(run(['thread', 'reply', id, '--body', 'x', '--client-id', 'k'], dir).status, 2);
 });
 
-test('reply: unknown and ambiguous ids, missing body', () => {
+test('reply: unknown id and missing body', () => {
   const dir = repoWithFile();
   const id = createAgentThread(dir);
   const nf = agent(['thread', 'reply', 'zzzz', '--body', 'x'], dir);
@@ -152,6 +152,43 @@ test('reply: unknown and ambiguous ids, missing body', () => {
   assert.equal(nf.json.error.code, 'THREAD_NOT_FOUND');
   assert.equal(agent(['thread', 'reply'], dir).status, 2);
   assert.equal(agent(['thread', 'reply', id], dir).status, 2);
+});
+
+test('reply: an ambiguous prefix is exit 2 and lists the candidates', () => {
+  const dir = repoWithFile();
+  const a = createAgentThread(dir);
+  const b = createAgentThread(dir);
+  const common = a.slice(0, 4); // the year: shared by both
+  const r = agent(['thread', 'reply', common, '--body', 'x'], dir);
+  assert.equal(r.status, 2);
+  assert.equal(r.json.error.code, 'INVALID_INPUT');
+  assert.match(r.json.error.message, new RegExp(`matches 2 threads: .*${a}`));
+  assert.ok(r.json.error.message.includes(b));
+});
+
+test('reply: a handle from thread create resolves', () => {
+  const dir = repoWithFile();
+  const made = agent(['thread', 'create', 'src/a.ts:2', '--body', 'first'], dir);
+  const { id } = made.json.data.thread;
+  const shortId = id.slice(-6, -2); // 4-char handle; unique with one thread
+  const r = agent(['thread', 'reply', shortId, '--body', 'via handle'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.json.data.thread.id, id);
+  const rs = agent(['thread', 'resolve', shortId], dir);
+  assert.equal(rs.status, 0, rs.stderr);
+  assert.equal(rs.json.data.thread.id, id);
+});
+
+test('reply: drafts are visible to human mode only', () => {
+  const dir = repoWithFile();
+  const d = run(['thread', 'create', 'src/a.ts:2', '--body', 'draft'], dir);
+  const { id } = d.json.data.thread;
+  const shortId = id.slice(-6, -2);
+  const human = run(['thread', 'reply', shortId, '--body', 'more'], dir);
+  assert.equal(human.status, 0, human.stderr);
+  assert.equal(human.json.data.thread.id, id);
+  const bot = agent(['thread', 'reply', id, '--body', 'x'], dir);
+  assert.equal(bot.status, 3);
 });
 
 test('reply: --dry-run writes nothing', () => {

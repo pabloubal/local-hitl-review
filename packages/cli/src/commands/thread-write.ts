@@ -6,29 +6,20 @@ import { isAbsolute, relative, resolve as resolvePath, sep } from 'node:path';
 import { LhrError, type Severity, type ThreadStatus } from '../../../core/src/index.js';
 import type { Command, CommandContext } from '../commands.js';
 import { readStdin } from '../context.js';
-import { CliError, usageError } from '../errors.js';
+import { usageError } from '../errors.js';
+import { resolveThreadId } from '../handles.js';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const DRAFT_TEXT = 'draft saved; run lhr review submit to send it\n';
 
-/**
- * Minimal local resolver: a full thread ID or a unique prefix of one.
- * TODO: swap for `handles.ts` (handle resolution) once #123 lands.
- */
-export async function resolveThreadId(ctx: CommandContext, input: string): Promise<string> {
-  const tree = await ctx.tree();
-  const snapshot = await tree.load();
+/** Resolves a handle, full ID or prefix among the threads this identity can see. */
+export async function resolveThread(ctx: CommandContext, input: string): Promise<string> {
+  const snapshot = await (await ctx.tree()).load();
   const ids = snapshot.threads({ includeDrafts: ctx.identity.mode === 'human' }).map((t) => t.id);
-  if (ids.includes(input)) return input;
-  const matches = ids.filter((id) => id.startsWith(input));
-  if (matches.length === 1) return matches[0];
-  if (matches.length > 1) {
-    throw new CliError('INVALID_INPUT', `"${input}" matches ${matches.length} threads`, {
-      see: ctx.see,
-      example: `lhr ${ctx.path.join(' ')} ${matches[0]}`,
-    });
-  }
-  throw new CliError('THREAD_NOT_FOUND', `no thread matches "${input}"`);
+  return resolveThreadId(ids, input, {
+    see: ctx.see,
+    example: (id) => `lhr ${ctx.path.join(' ')} ${id}`,
+  });
 }
 
 function str(ctx: CommandContext, key: string): string | undefined {
@@ -268,7 +259,7 @@ const reply: Command = {
     }
     rejectClientIdInHumanMode(ctx);
     severity(ctx);
-    const threadId = await resolveThreadId(ctx, idArg);
+    const threadId = await resolveThread(ctx, idArg);
     if (ctx.dryRun) return dryRunReport(ctx, threadId, { created: true });
     await writeMessage(ctx, threadId, body);
   },
@@ -282,7 +273,7 @@ function statusCommand(status: ThreadStatus): Command {
       const [idArg] = positionals(ctx, 1);
       if (idArg === undefined) throw usageError('missing <id>', ctx.see, `lhr thread ${verb} <id>`);
       const body = await readBody(ctx);
-      const threadId = await resolveThreadId(ctx, idArg);
+      const threadId = await resolveThread(ctx, idArg);
       if (body !== undefined) {
         if (ctx.dryRun) return dryRunReport(ctx, threadId, { created: true });
         await writeMessage(ctx, threadId, body, status);
