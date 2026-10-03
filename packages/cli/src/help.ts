@@ -124,8 +124,9 @@ export const COMMANDS: CommandHelp[] = [
     usage: 'lhr review submit --verdict <v> [-] [flags]',
     args: [['-', 'Read the summary message from stdin']],
     flags: [
-      ['--verdict <v>', 'approve or request-changes'],
-      ['--body <text>', 'Summary message (instead of stdin)'],
+      ['--verdict <v>', 'approve, comment or request-changes'],
+      ['--summary <text>', 'Summary message (instead of stdin)'],
+      ['--body <text>', 'Same as --summary'],
       ['--client-id <id>', 'Idempotency key: a retry with the same id is a no-op'],
     ],
     examples: [

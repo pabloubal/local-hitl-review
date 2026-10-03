@@ -4,6 +4,7 @@ import type { ParseArgsConfig } from 'node:util';
 import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
+import { reviewSubmit } from './commands/review-submit.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
@@ -113,7 +114,7 @@ export const HANDLERS: Record<string, Command> = {
   'thread reply': notImplemented('thread reply'),
   'thread resolve': notImplemented('thread resolve'),
   'thread reopen': notImplemented('thread reopen'),
-  'review submit': notImplemented('review submit'),
+  'review submit': reviewSubmit,
   check: notImplemented('check'),
   mcp: notImplemented('mcp'),
   __debug: debug,
