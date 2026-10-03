@@ -5,6 +5,7 @@ import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
 import { init } from './commands/init.js';
+import { reviewSubmit } from './commands/review-submit.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
 import { threadList, threadShow } from './commands/thread-read.js';
 
@@ -122,7 +123,7 @@ export const HANDLERS: Record<string, Command> = {
   'thread reply': { ...notImplemented('thread reply'), writes: true },
   'thread resolve': { ...notImplemented('thread resolve'), writes: true },
   'thread reopen': { ...notImplemented('thread reopen'), writes: true },
-  'review submit': { ...notImplemented('review submit'), writes: true },
+  'review submit': { ...reviewSubmit, writes: true },
   check: notImplemented('check'),
   // Always starts (resolves the root per tool call); no --name (mcp.md § Identity).
   mcp: { ...notImplemented('mcp'), needsRoot: false, rejects: ['name'] },
