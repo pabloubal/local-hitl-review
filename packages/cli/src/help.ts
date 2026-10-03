@@ -125,7 +125,8 @@ export const COMMANDS: CommandHelp[] = [
     args: [['-', 'Read the summary message from stdin']],
     flags: [
       ['--verdict <v>', 'approve, comment or request-changes'],
-      ['--body <text>', 'Summary message (instead of stdin)'],
+      ['--summary <text>', 'Summary message (instead of stdin)'],
+      ['--body <text>', 'Same as --summary'],
       ['--client-id <id>', 'Idempotency key: a retry with the same id is a no-op'],
     ],
     examples: [
