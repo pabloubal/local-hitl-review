@@ -166,7 +166,7 @@ Starts a thread (core `createThread`). Written immediately, never part of a roun
 
 - **Anchor:** `<path>:<line>` or `<path>:<line>-<end>` for a line thread, bare `<path>` for a file thread. Paths containing `:` use `--path <p> --line <n> [--end-line <n>]` instead (equivalent form). `line` and `end-line` are integers ≥ 1, `end ≥ line`.
 - **Flags:** `--side new|old` (default `new`), `--base-commit <sha>` (required with `--side old`), `--severity <s>`, `--body <text>` or `-`, `--client-id <id>`, `--dry-run`. There is no `--text`: the anchor snapshot is always the file on disk.
-- A relative `<path>` is resolved against the current directory and stored relative to the review root **[gap 8]**. A path outside the root, or with no enclosing git repo, is `PATH_NOT_IN_REPO` (exit `2`).
+- A relative `<path>` is resolved against the current directory and stored relative to the review root **[gap 8]**. A path outside the review root is a usage error (`INVALID_INPUT`, exit `2`). A path inside the root with no enclosing git repo is `PATH_NOT_IN_REPO` (exit `2`), as in `core-api.md`.
 - **Idempotent** with `--client-id`: if any thread's opening message already has that `clientId`, the existing thread is returned with `created: false` and exit `0`.
 
 ```

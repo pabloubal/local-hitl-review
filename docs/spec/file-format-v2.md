@@ -12,6 +12,7 @@ The field-level contract for the `.lhr/` tree. ADR 0003 decides the layout and A
     <message-id>.md                        one file per message
   rounds/<round-id>.md                     one file per submitted review round
   pushes/<push-id>.md                      one file per `review push`
+  .gitignore                               written by `lhr init`; contains `drafts/`
   drafts/                                  gitignored; same layout as threads/
     threads/<thread-id>/thread.md          a new draft thread
     threads/<thread-id>/<message-id>.md    a draft message (new or existing thread)
@@ -20,6 +21,8 @@ The field-level contract for the `.lhr/` tree. ADR 0003 decides the layout and A
 No file outside `drafts/` is rewritten or deleted by our tools after it is created. Draft files may be rewritten and deleted freely.
 
 Our tools change drafts only while holding the **drafts lock**, the directory `drafts/.lock/` (created with `mkdir`, which is atomic on every file system, unlike hard links). It holds an `owner` file with the holder's pid, host name and start time, and the holder touches the directory every 10 seconds. A lock whose owner is a dead process on the same host, or that was not touched for 60 seconds, is stale and gets broken; breakers take `drafts/.lock.break/` first and check again under it. Age is judged against the directory's modification time, so between hosts sharing a tree it assumes clocks agree to within that margin. A new draft thread is built complete (`thread.md` plus its first message) under `drafts/.tmp/` and renamed into `drafts/threads/`, so a draft thread never lacks its first message. Readers and `lhr check` ignore `drafts/.lock/`, `drafts/.lock.break/` and `drafts/.tmp/`.
+
+`lhr init` writes `.lhr/.gitignore` containing `drafts/`, so drafts stay ignored even if the review root becomes a git repo later. A review root that is not a git repo has an unversioned `.lhr/`: a local review workspace, and sharing it is the user's job.
 
 ## IDs and file names
 
@@ -79,11 +82,12 @@ Messages can't be edited once submitted. A correction is a new message.
 
 ## Round file
 
-| Key           | Required | Values                                  | Meaning                        |
-| ------------- | -------- | --------------------------------------- | ------------------------------ |
-| `verdict`     | yes      | `approve`, `comment`, `request-changes` | The reviewer's verdict         |
-| `author.kind` | yes      | `human`                                 | Rounds are submitted by humans |
-| `author.name` | yes      | string                                  | As on messages                 |
+| Key           | Required | Values                                  | Meaning                                                                                                    |
+| ------------- | -------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `verdict`     | yes      | `approve`, `comment`, `request-changes` | The reviewer's verdict                                                                                     |
+| `author.kind` | yes      | `human`                                 | Rounds are submitted by humans                                                                             |
+| `author.name` | yes      | string                                  | As on messages                                                                                             |
+| `clientId`    | no       | string                                  | Caller-chosen ID, unique among rounds; a submit with a `clientId` an existing round has returns that round |
 
 **Body:** the review summary in markdown, possibly empty. A round's messages are the messages whose `round` is its ID; the round file doesn't list them.
 
@@ -169,7 +173,7 @@ If this is interrupted, a round may exist with only some of its messages, and ru
     - A symlink where a thread directory, `thread.md`, message, round or push file is expected (`SYMLINK`). Links are never followed; `load()` reports the same problem and skips the entry.
     - A line thread's snapshot line count isn't `contextBefore + (endLine - startLine + 1) + contextAfter`.
     - A message's `round` names a missing round file.
-    - A thread has a duplicate `clientId`. A draft copy of a submitted message with the same ID, left by an interrupted submit, is the same message, not a duplicate.
+    - A thread has a duplicate `clientId`, or two rounds share a `clientId`. A draft copy of a submitted message with the same ID, left by an interrupted submit, is the same message, not a duplicate.
     - A push record names an unknown thread or message ID.
   - **Warnings:**
     - An unknown key.

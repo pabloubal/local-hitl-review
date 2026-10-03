@@ -11,7 +11,7 @@ packages/core     file format, anchoring, git access, review rounds; never impor
 packages/cli      the `lhr` binary, including `lhr mcp`; published to npm
 packages/vscode   the extension (today's src/, minus what moves to core); published as a .vsix
 plugin/           Claude Code plugin: skill, hooks, MCP config (plain files, not an npm package)
-skills/           SKILL.md, AGENTS.md snippet, Cursor rules (plain files)
+skills/           SKILL.md, AGENTS.md snippet, agent rule files (plain files)
 ```
 
 - **The core is private.** esbuild bundles it into the CLI and the extension. The public contract is the file format (ADR 0003), not our library, so the core's API can change freely until it settles. Publishing it later needs no restructuring.
