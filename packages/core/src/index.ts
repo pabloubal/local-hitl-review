@@ -1,7 +1,7 @@
 export * from './errors.js';
 export * from './frontmatter.js';
 export * from './ids.js';
-export { FORMAT_VERSION } from './format.js';
+export { FORMAT_VERSION, checkFormat } from './format.js';
 export type { AnchorInput } from './capture.js';
 export type {
   AddDraftMessageInput,
