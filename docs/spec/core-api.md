@@ -8,20 +8,21 @@ What `packages/core` exports for the extension, the `lhr` CLI and `lhr mcp`. The
 openTree(host: Host): Promise<LhrTree>
 
 interface Host {
-  root: string; // repo root (the directory holding .lhr/)
+  root: string; // review root (the directory holding .lhr/); not necessarily a repo
   now?: () => Date; // default: () => new Date()
   random?: () => string; // 6 chars from [a-z2-7]; default: crypto
   gitPath?: string; // default: "git" on PATH
 }
 ```
 
+- **Review root.** `openTree` checks for `.lhr/format` at `root` instead of requiring it to be a repo toplevel (`FORMAT_MISSING` otherwise). Repo membership is discovered per path: walk up from the file to `root` and use the nearest directory holding `.git` (a directory or a worktree file). If none is nearer and `root` sits inside a larger repo, that enclosing repo (`rev-parse --show-toplevel` at `root`) is used, and core converts root-relative paths to toplevel-relative ones for repo calls. A submodule is its own repo. `anchor.path` stays relative to `root`; `commit` and `blob` are per-repo SHAs. A path with no enclosing repo throws `PATH_NOT_IN_REPO`.
 - The core uses Node `fs` and the `git` binary directly. Only the clock, the random source and the git path are injected, so tests can pin IDs. Tests run on real temporary git repos (ADR 0004).
-- `LhrTree` owns long-lived resources: a `git cat-file --batch` process and the per-file diff cache. Call `dispose()` when done. The CLI opens one per command. The extension and the MCP server keep one per repo (one per workspace folder in a multi-root workspace).
+- `LhrTree` owns long-lived resources: one `git cat-file --batch` process per repo (started when a path in that repo is first read) and the per-file diff cache. Call `dispose()` when done. The CLI opens one per command. The extension and the MCP server keep one per review root (one per workspace folder in a multi-root workspace).
 - Everything is async.
 
 ## Errors
 
-- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`, `IO_FAILED`. `IO_FAILED` is thrown on an unexpected file-system failure while writing, including running out of retries for a unique file name and waiting more than about 5 seconds for the drafts lock held by another process. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
+- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `PATH_NOT_IN_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`, `IO_FAILED`. `PATH_NOT_IN_REPO` is thrown when an anchor path has no enclosing repo; the CLI exits 2. `IO_FAILED` is thrown on an unexpected file-system failure while writing, including running out of retries for a unique file name and waiting more than about 5 seconds for the drafts lock held by another process. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
 - **Broken content never throws.** One bad file must not hide the rest of the tree. Reads skip what they can't parse and report it as a `Diagnostic`, the same type `check()` returns.
 
 ```ts
@@ -118,11 +119,12 @@ interface AnchorResult {
 - **Batched**, so all threads on a file share one diff: 200 threads went from 8.6 s to 1.1 s in the re-anchoring prototype. The algorithm is in [ADR 0006](../adr/0006-comment-anchoring.md).
 - `overrides` replaces the on-disk content of a path, so the extension can re-anchor while a document has unsaved changes.
 - **`old`-side threads aren't re-anchored.** They keep their saved lines against `anchor.commit` and report `current` with `method: "pinned"`. If the commit is unreachable and the snapshot can't be found, they report `orphaned`.
+- A thread whose repo is gone (directory removed or no longer a repo) is `orphaned` with a `Diagnostic`, and its snapshot is still shown. Reads never throw for it.
 - File threads report `current` while their file exists (after following renames), otherwise `orphaned`.
 
 ## Writing
 
-Every write takes an explicit `author`. `lhr.humanAuthor()` returns `{ kind: "human", name: <git user.name> }`. Every write adds a uniquely named file, so there are no locks. A rare `clientId` race between two processes is caught by `check()` as a duplicate.
+Every write takes an explicit `author`. `lhr.humanAuthor()` returns `{ kind: "human", name: <git user.name> }`, read with `git config user.name` run at the review root (global config when the root is not a repo; throws if empty). One author per review root. Every write adds a uniquely named file, so there are no locks. A rare `clientId` race between two processes is caught by `check()` as a duplicate.
 
 ### Anchor input
 
@@ -164,11 +166,13 @@ lhr.submitRound(input: {
   verdict: "approve" | "comment" | "request-changes";
   summary: string;
   author: Author; // kind must be "human"
-}): Promise<{ roundId: string; threadIds: string[]; messageIds: string[] }>
+  clientId?: string; // stored on the round file
+}): Promise<{ roundId: string; threadIds: string[]; messageIds: string[]; created: boolean }>
 ```
 
 - `submitRound` works with zero drafts: a bare approve or request-changes writes only the round file.
 - It follows file-format-v2 § Submitting a review round. Before step 1 it writes `drafts/.submitting` holding the round ID. A rerun after an interruption finishes that same round instead of starting a second one, then deletes the marker.
+- **Idempotency:** if a round already has the given `clientId`, `submitRound` returns that round with `created: false`, like `reply` and `createThread`. Without a `clientId` a retry writes a new round. The `.submitting` marker only covers interrupted runs.
 - Editing or discarding a submitted message throws `NOT_A_DRAFT`.
 - Every draft call (`createDraftThread`, `addDraftMessage`, `updateDraft`, `discardDraft`, `submitRound`) takes the drafts lock (file-format-v2 § Tree), so they never interleave, across processes too. A call that can't get the lock within about 5 seconds throws `IO_FAILED`. A `submitRound` that had to wait for the lock and finds that a concurrent submit wrote a round with the same author, verdict and summary treats it as a double submit: it returns that round with `resumed: true` instead of writing a second round. Otherwise it is an ordinary submit of the drafts that are left (none left means a bare round).
 

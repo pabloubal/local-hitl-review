@@ -62,6 +62,10 @@ function invalid(message: string): LhrError {
 }
 
 function validatePath(p: string): void {
+  // A trailing slash makes `ls-tree <commit> -- dir/` list the directory's contents.
+  if (p.endsWith('/') || p.endsWith('\\')) {
+    throw invalid(`path must name a file, not a directory: ${p}`);
+  }
   if (
     p === '' ||
     p.includes('\\') ||

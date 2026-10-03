@@ -1,3 +1,17 @@
+## [0.23.4](https://github.com/pabloubal/local-hitl-review/compare/v0.23.3...v0.23.4) (2026-10-03)
+
+
+### Bug Fixes
+
+* **core:** tighten moved-code and rename anchoring; bound untracked probing ([#93](https://github.com/pabloubal/local-hitl-review/issues/93)) ([f073de7](https://github.com/pabloubal/local-hitl-review/commit/f073de7b26597aa92df7ec5650729cd7440a81a5)), closes [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80) [#80](https://github.com/pabloubal/local-hitl-review/issues/80)
+
+## [0.23.3](https://github.com/pabloubal/local-hitl-review/compare/v0.23.2...v0.23.3) (2026-10-02)
+
+
+### Bug Fixes
+
+* **core:** clearer error for directory anchor paths; document lone CR ([#92](https://github.com/pabloubal/local-hitl-review/issues/92)) ([32ad8e0](https://github.com/pabloubal/local-hitl-review/commit/32ad8e06ff2474cde9269dbafe12f32eb4dfe548))
+
 ## [0.23.2](https://github.com/pabloubal/local-hitl-review/compare/v0.23.1...v0.23.2) (2026-10-01)
 
 

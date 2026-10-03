@@ -56,6 +56,8 @@ Every file starts with frontmatter between two `---` lines, followed by a markdo
 
 **Body:** for a `line` thread, exactly one fenced code block holding the snapshot: `contextBefore` lines, the anchored lines, then `contextAfter` lines, byte for byte. The fence is longer than any backtick run in the snapshot; the info string may name the language. For a `file` thread the body is empty.
 
+**Line numbers:** lines are split on `\n` only, to match `git diff` numbering. A `\r` before `\n` stays in the line's text; a lone `\r` (not followed by `\n`) is not a line break. Editors that treat a lone `\r` as a break number such files differently, so their line numbers can differ from LHR's. A final `\n` ends the last line and doesn't start another.
+
 The snapshot exists because git may garbage-collect `anchor.blob`. Anchoring then searches for the snapshot text instead (see [ADR 0006](../adr/0006-comment-anchoring.md)).
 
 ## Message file
