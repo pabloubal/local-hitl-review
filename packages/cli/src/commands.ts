@@ -9,6 +9,8 @@ import { reviewSubmit } from './commands/review-submit.js';
 import { THREAD_WRITE_HANDLERS } from './commands/thread-write.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
 import { threadList, threadShow } from './commands/thread-read.js';
+import { check } from './commands/check.js';
+import { inbox } from './commands/inbox.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
 
@@ -29,6 +31,8 @@ export interface CommandContext {
   /** Opens the tree at the root; disposed by the runner after the handler. */
   tree(): Promise<LhrTree>;
   author(): Promise<Author>;
+  /** Set by a handler to exit non-zero without an error (`lhr check` only). */
+  exitCode?: number;
   /** `lhr <path> --help`, for `see:` lines. */
   see: string;
   /** Prints success: the envelope under --json, else `text` on stdout. */
@@ -117,11 +121,11 @@ const debug: Command = {
 
 export const HANDLERS: Record<string, Command> = {
   init: { ...init, writes: true },
-  inbox: notImplemented('inbox'),
+  inbox,
   'thread list': threadList,
   'thread show': threadShow,
   'review submit': { ...reviewSubmit, writes: true },
-  check: notImplemented('check'),
+  check,
   // Always starts (resolves the root per tool call); no --name (mcp.md § Identity).
   mcp: { ...notImplemented('mcp'), needsRoot: false, rejects: ['name'] },
   ...THREAD_WRITE_HANDLERS,
