@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -17,8 +18,32 @@ export const binPath = fileURLToPath(new URL('../dist/lhr.mjs', import.meta.url)
 export const pkgVersion = JSON.parse(readFileSync(`${pkgDir}/package.json`, 'utf8')).version;
 
 let built = false;
+/** Newest mtime under `dir` (0 when missing). */
+function newest(dir) {
+  let t = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    t = Math.max(t, e.isDirectory() ? newest(p) : statSync(p).mtimeMs);
+  }
+  return t;
+}
+const upToDate = () => {
+  try {
+    return (
+      statSync(binPath).mtimeMs >=
+      Math.max(newest(join(pkgDir, 'src')), newest(join(pkgDir, '../core/src')))
+    );
+  } catch {
+    return false;
+  }
+};
 export function build() {
   if (built) return;
+  // `npm test` builds first; test files run in parallel, so don't rebuild a fresh bundle.
+  if (upToDate()) {
+    built = true;
+    return;
+  }
   const res = spawnSync(process.execPath, ['esbuild.mjs'], {
     cwd: pkgDir,
     encoding: 'utf8',
