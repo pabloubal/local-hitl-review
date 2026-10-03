@@ -28,6 +28,10 @@ _Avoid_: Decision, result
 
 ### Anchoring
 
+**Review root**:
+The directory holding `.lhr/`, found by walking up from where `lhr` runs. It may be a repo toplevel, a plain directory containing several repos, or a directory inside a larger repo. Anchor paths are relative to it.
+_Avoid_: Repo root, workspace
+
 **Anchor**:
 The saved, never-changing record of which code a thread was attached to when it was created.
 _Avoid_: Position, location
