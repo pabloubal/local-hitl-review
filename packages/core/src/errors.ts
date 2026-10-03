@@ -1,5 +1,6 @@
 export type LhrErrorCode =
   | 'NOT_A_REPO'
+  | 'PATH_NOT_IN_REPO'
   | 'FORMAT_MISSING'
   | 'FORMAT_VERSION'
   | 'THREAD_NOT_FOUND'

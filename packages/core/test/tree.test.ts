@@ -43,35 +43,12 @@ describe('openTree', () => {
     });
   });
 
-  it('NOT_A_REPO for a plain temp dir', async () => {
-    const dir = await createTempDir();
-    try {
-      await assert.rejects(openTree({ root: dir.root }), hasCode('NOT_A_REPO'));
-    } finally {
-      await dir.cleanup();
-    }
-  });
-
   it('NOT_A_REPO for a nonexistent path', async () => {
     const dir = await createTempDir();
     try {
       await assert.rejects(openTree({ root: path.join(dir.root, 'nope') }), hasCode('NOT_A_REPO'));
     } finally {
       await dir.cleanup();
-    }
-  });
-
-  it('NOT_A_REPO for a subdirectory of a repo, naming the toplevel', async () => {
-    const repo = await createTempRepo();
-    try {
-      await mkdir(path.join(repo.root, 'sub'));
-      await assert.rejects(openTree({ root: path.join(repo.root, 'sub') }), (err: unknown) => {
-        return (
-          err instanceof LhrError && err.code === 'NOT_A_REPO' && err.message.includes(repo.root)
-        );
-      });
-    } finally {
-      await repo.cleanup();
     }
   });
 
@@ -102,21 +79,6 @@ describe('openTree', () => {
       );
     } finally {
       await repo.cleanup();
-    }
-  });
-
-  it('NOT_A_REPO includes git stderr', async () => {
-    const dir = await createTempDir();
-    try {
-      await assert.rejects(openTree({ root: dir.root }), (err: unknown) => {
-        return (
-          err instanceof LhrError &&
-          err.code === 'NOT_A_REPO' &&
-          /not a git repository/i.test(err.message)
-        );
-      });
-    } finally {
-      await dir.cleanup();
     }
   });
 

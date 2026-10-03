@@ -295,7 +295,10 @@ export async function createThread(
   };
   // Serialize everything before touching disk so bad input leaves no files.
   const openingText = messageText(opening);
-  const captured = await captureAnchor({ root: tree.root, gitPath: tree.gitPath }, input.anchor);
+  const captured = await captureAnchor(
+    { root: tree.root, gitPath: tree.gitPath, repos: tree.repos },
+    input.anchor,
+  );
   const text = threadMdText(captured, input.severity);
   const threads = path.join(tree.root, '.lhr', 'threads');
   await mkdir(threads, { recursive: true });
