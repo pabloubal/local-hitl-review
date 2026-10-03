@@ -5,6 +5,7 @@ import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
+import { threadList, threadShow } from './commands/thread-read.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
 
@@ -114,8 +115,8 @@ const debug: Command = {
 export const HANDLERS: Record<string, Command> = {
   init: { ...notImplemented('init'), needsRoot: false, writes: true },
   inbox: notImplemented('inbox'),
-  'thread list': notImplemented('thread list'),
-  'thread show': notImplemented('thread show'),
+  'thread list': threadList,
+  'thread show': threadShow,
   'thread create': { ...notImplemented('thread create'), writes: true },
   'thread reply': { ...notImplemented('thread reply'), writes: true },
   'thread resolve': { ...notImplemented('thread resolve'), writes: true },
