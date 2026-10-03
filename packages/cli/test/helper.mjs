@@ -27,6 +27,19 @@ export function build() {
   built = true;
 }
 
+let gitConfigPath;
+/**
+ * A global git config that sets only `user.name`, so a run never depends on the
+ * host's git identity (CI runners have none; a developer's machine does).
+ */
+function hermeticGitConfig() {
+  if (!gitConfigPath) {
+    gitConfigPath = join(tmpDir('lhr-gitconfig-'), 'config');
+    writeFileSync(gitConfigPath, '[user]\n\tname = Test Human\n');
+  }
+  return gitConfigPath;
+}
+
 /** Runs the built binary; returns { status, stdout, stderr }. */
 export function lhr(args, opts = {}) {
   build();
@@ -37,7 +50,14 @@ export function lhr(args, opts = {}) {
   const { env: extra, ...rest } = opts;
   const res = spawnSync(process.execPath, [binPath, ...args], {
     encoding: 'utf8',
-    env: { ...env, NO_COLOR: '1', LHR_DEBUG: '1', ...extra },
+    env: {
+      ...env,
+      GIT_CONFIG_GLOBAL: hermeticGitConfig(),
+      GIT_CONFIG_NOSYSTEM: '1',
+      NO_COLOR: '1',
+      LHR_DEBUG: '1',
+      ...extra,
+    },
     ...rest,
   });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
