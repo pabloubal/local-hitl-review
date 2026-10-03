@@ -76,5 +76,5 @@ status: open
 This function doesn't handle the edge case where `store` is null.
 ```
 
-Your AI agents (like Cline, Cursor, or Aider) can simply read these files, implement the requested changes, and update the `status` to `acknowledged`. 
+Your AI agents (any coding agent) can simply read these files, implement the requested changes, and update the `status` to `acknowledged`. 
 The extension automatically watches the `.feedback` directory and updates the UI in real-time, giving the thread a visual "Resolved" state as soon as the agent fixes the issue!
