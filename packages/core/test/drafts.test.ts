@@ -459,6 +459,7 @@ reply
       );
       const res = await c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
       assert.equal(res.roundId, roundId);
+      assert.equal(res.created, true);
       assert.deepEqual(res.messageIds, [m.messageId]);
       assert.equal((await c.read(`.lhr/rounds/${roundId}.md`)).includes('verdict: comment'), true);
     });
@@ -499,6 +500,7 @@ describe('crash safety', () => {
       assert.deepEqual((await c.tree.load()).problems, []);
       const res = await c.tree.submitRound({ verdict: 'approve', summary: 'z', author: HUMAN });
       assert.equal(res.resumed, true);
+      assert.equal(res.created, false); // the interrupted run wrote the round file
       assert.equal(res.roundId, roundId);
       assert.deepEqual(res.messageIds, [m.messageId]);
       assert.equal((await c.tree.load()).thread(tid)?.messages.length, 2);
@@ -1263,6 +1265,184 @@ describe('drafts lock: review follow-ups', () => {
           hasCode('INVALID_INPUT'),
         );
         assert.equal((await c.ls('.lhr')).includes('rounds'), false);
+      });
+    });
+
+    const R = '20261001T150000Z-iiiiii';
+    const markerPath = (c: Ctx): string => `${c.repo.root}/.lhr/drafts/.submitting`;
+    async function interrupted(
+      c: Ctx,
+      messages: string[],
+      owner: string | undefined,
+      roundFile: boolean,
+    ): Promise<void> {
+      const cid = owner === undefined ? {} : { clientId: owner };
+      await writeFile(markerPath(c), JSON.stringify({ round: R, messages, ...cid }));
+      if (!roundFile) return;
+      await mkdir(`${c.repo.root}/.lhr/rounds`, { recursive: true });
+      const line = owner === undefined ? '' : `clientId: ${owner}\n`;
+      await writeFile(
+        `${c.repo.root}/.lhr/rounds/${R}.md`,
+        `---\nverdict: comment\nauthor.kind: human\nauthor.name: LHR Test\n${line}---\nfirst\n`,
+      );
+    }
+
+    it('resumes an interrupted round with the same clientId: created false', async () => {
+      await withCtx(async (c) => {
+        const tid = await agentThread(c);
+        const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+        await interrupted(c, [m.messageId], 'abc', true);
+        const later = await c.tree.addDraftMessage(tid, { body: 'later', author: HUMAN });
+        const res = await c.tree.submitRound({
+          verdict: 'approve',
+          summary: 'retry',
+          author: HUMAN,
+          clientId: 'abc',
+        });
+        assert.equal(res.roundId, R);
+        assert.equal(res.created, false);
+        assert.equal(res.resumed, true);
+        assert.deepEqual(res.messageIds, [m.messageId]);
+        assert.deepEqual(await c.ls('.lhr/rounds'), [`${R}.md`]);
+        assert.equal((await c.read(`.lhr/rounds/${R}.md`)).endsWith('first\n'), true);
+        await assert.rejects(c.read('.lhr/drafts/.submitting'));
+        assert.equal(
+          (await c.ls(`.lhr/drafts/threads/${tid}`)).includes(`${later.messageId}.md`),
+          true,
+        );
+        assert.deepEqual((await c.tree.load()).problems, []);
+      });
+    });
+
+    it('finishes a foreign interrupted round, then makes the caller its own', async () => {
+      for (const owner of ['A', undefined]) {
+        await withCtx(async (c) => {
+          const tid = await agentThread(c);
+          const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+          await interrupted(c, [m.messageId], owner, true);
+          const later = await c.tree.addDraftMessage(tid, { body: 'later', author: HUMAN });
+          c.clock('160000');
+          c.randoms.push('bbbbbb');
+          const b = await c.tree.submitRound({
+            verdict: 'request-changes',
+            summary: 'b-sum',
+            author: HUMAN,
+            clientId: 'B',
+          });
+          assert.equal(b.roundId, '20261001T160000Z-bbbbbb', `owner ${String(owner)}`);
+          assert.equal(b.created, true);
+          assert.equal(b.resumed, true);
+          assert.deepEqual(b.messageIds, [later.messageId]);
+          assert.deepEqual(await c.ls('.lhr/rounds'), [`${R}.md`, `${b.roundId}.md`]);
+          assert.equal((await c.read(`.lhr/rounds/${R}.md`)).endsWith('first\n'), true);
+          const bText = await c.read(`.lhr/rounds/${b.roundId}.md`);
+          assert.equal(bText.includes('clientId: B\n'), true);
+          assert.equal(bText.includes('verdict: request-changes'), true);
+          assert.equal(bText.endsWith('b-sum\n'), true);
+          const snap = await c.tree.load();
+          assert.deepEqual(snap.problems, []);
+          assert.equal(snap.thread(tid)?.messages.find((x) => x.id === m.messageId)?.round, R);
+          await assert.rejects(c.read('.lhr/drafts/.submitting'));
+
+          const retryB = await c.tree.submitRound({
+            verdict: 'approve',
+            summary: '',
+            author: HUMAN,
+            clientId: 'B',
+          });
+          assert.equal(retryB.created, false);
+          assert.equal(retryB.roundId, b.roundId);
+          if (owner !== undefined) {
+            const retryA = await c.tree.submitRound({
+              verdict: 'approve',
+              summary: '',
+              author: HUMAN,
+              clientId: owner,
+            });
+            assert.equal(retryA.created, false);
+            assert.equal(retryA.roundId, R);
+          }
+          assert.equal((await c.ls('.lhr/rounds')).length, 2);
+        });
+      }
+    });
+
+    it('drops a foreign marker without a round file; the caller gets its own round', async () => {
+      const cases: Array<[string | undefined, string | undefined]> = [
+        ['A', 'B'],
+        [undefined, 'B'],
+        ['A', undefined],
+      ];
+      for (const [owner, caller] of cases) {
+        await withCtx(async (c) => {
+          const label = `${String(owner)} -> ${String(caller)}`;
+          const tid = await agentThread(c);
+          const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+          await interrupted(c, [m.messageId], owner, false);
+          c.clock('160000');
+          c.randoms.push('bbbbbb');
+          const b = await c.tree.submitRound({
+            verdict: 'request-changes',
+            summary: 'b-sum',
+            author: HUMAN,
+            ...(caller === undefined ? {} : { clientId: caller }),
+          });
+          assert.equal(b.roundId, '20261001T160000Z-bbbbbb', label);
+          assert.equal(b.created, true, label);
+          assert.equal(b.resumed, false, label);
+          assert.deepEqual(b.messageIds, [m.messageId], label);
+          assert.deepEqual(await c.ls('.lhr/rounds'), [`${b.roundId}.md`], label);
+          const bText = await c.read(`.lhr/rounds/${b.roundId}.md`);
+          assert.equal(bText.includes('clientId: A'), false, label);
+          if (caller !== undefined) assert.equal(bText.includes(`clientId: ${caller}\n`), true);
+          await assert.rejects(c.read('.lhr/drafts/.submitting'));
+          if (owner !== undefined) {
+            c.clock('170000');
+            c.randoms.push('aaaaaa');
+            const a = await c.tree.submitRound({
+              verdict: 'comment',
+              summary: 'a-sum',
+              author: HUMAN,
+              clientId: owner,
+            });
+            assert.equal(a.created, true, label);
+            assert.equal(a.roundId, '20261001T170000Z-aaaaaa', label);
+            assert.equal((await c.ls('.lhr/rounds')).length, 2, label);
+          }
+          assert.deepEqual((await c.tree.load()).problems, [], label);
+        });
+      }
+    });
+
+    it('two waiting submits with the same clientId make exactly one round', async () => {
+      await withCtx(async (c) => {
+        const tid = await agentThread(c);
+        const m = await c.tree.addDraftMessage(tid, { body: 'x', author: HUMAN });
+        let pa: Promise<SubmitRoundResult> | undefined;
+        let pb: Promise<SubmitRoundResult> | undefined;
+        // Different verdicts, so only the clientId can join them.
+        await contend(c.repo.root, 2, () => {
+          pa = c.tree.submitRound({
+            verdict: 'approve',
+            summary: '',
+            author: HUMAN,
+            clientId: 'x',
+          });
+          pb = c.tree.submitRound({
+            verdict: 'request-changes',
+            summary: 'fix',
+            author: HUMAN,
+            clientId: 'x',
+          });
+        });
+        const [a, b] = await Promise.all([pa, pb]);
+        assert.ok(a && b);
+        assert.equal(a.roundId, b.roundId);
+        assert.deepEqual([a.created, b.created].sort(), [false, true]);
+        assert.deepEqual(a.messageIds, [m.messageId]);
+        assert.deepEqual(b.messageIds, [m.messageId]);
+        assert.equal((await c.ls('.lhr/rounds')).length, 1);
+        assert.deepEqual((await c.tree.load()).problems, []);
       });
     });
   });
