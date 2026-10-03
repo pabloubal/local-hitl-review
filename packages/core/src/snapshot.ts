@@ -91,7 +91,7 @@ export function buildSnapshot(records: TreeRecords): TreeSnapshot {
           (filter.status === undefined || t.status === filter.status) &&
           (filter.whoseTurn === undefined ||
             t.whoseTurn === filter.whoseTurn) &&
-          (filter.path === undefined || t.anchor.path === filter.path) &&
+          (filter.path === undefined || matchesPath(t.anchor.path, filter.path)) &&
           (filter.round === undefined ||
             t.messages.some((m) => m.round === filter.round)),
       );
@@ -116,4 +116,14 @@ export function buildSnapshot(records: TreeRecords): TreeSnapshot {
       });
     },
   };
+}
+
+/**
+ * `filter.path` names a file or a directory (prefix on whole segments), both
+ * relative to the review root. A trailing slash is ignored; '' and '.' match all.
+ */
+function matchesPath(anchorPath: string, filter: string): boolean {
+  const prefix = filter.replace(/\/+$/, '');
+  if (prefix === '' || prefix === '.') return true;
+  return anchorPath === prefix || anchorPath.startsWith(`${prefix}/`);
 }

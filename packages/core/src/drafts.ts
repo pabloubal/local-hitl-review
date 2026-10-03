@@ -132,7 +132,10 @@ export async function createDraftThread(
 ): Promise<CreateDraftThreadResult> {
   validateDraft(input);
   if (input.body.trim() === '') throw invalid('the opening message needs a body');
-  const captured = await captureAnchor({ root: tree.root, gitPath: tree.gitPath }, input.anchor);
+  const captured = await captureAnchor(
+    { root: tree.root, gitPath: tree.gitPath, repos: tree.repos },
+    input.anchor,
+  );
   const text = threadMdText(captured, input.severity);
   // Serialize everything before touching disk so bad input leaves no files.
   const openingText = messageText({

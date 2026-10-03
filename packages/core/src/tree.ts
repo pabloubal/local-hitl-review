@@ -1,8 +1,9 @@
-import { realpath, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { LhrError } from './errors.js';
 import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
-import { GitBatch, GitExitError, runGit } from './git.js';
+import { GitExitError, runGit, type GitBatch } from './git.js';
+import { Repo, RepoSet } from './repos.js';
 import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
 import { computeAnchors } from './anchoring.js';
 import type { AnchorOptions, AnchorResult, Author, ThreadView, TreeSnapshot } from './model.js';
@@ -35,7 +36,7 @@ import {
 } from './write.js';
 
 export interface Host {
-  /** Repo root (the directory holding .lhr/). */
+  /** Review root (the directory holding .lhr/); not necessarily a git repo. */
   root: string;
   /** Clock. Default: () => new Date(). */
   now?: () => Date;
@@ -91,11 +92,20 @@ export interface LhrTree {
 export class Tree implements LhrTree {
   constructor(
     readonly root: string,
-    readonly git: GitBatch,
+    readonly repos: RepoSet,
+    private readonly rootRepo: Repo | undefined,
     private readonly now: () => Date,
     private readonly random: () => string,
     readonly gitPath: string = 'git',
   ) {}
+
+  /** The `cat-file` process of the repo holding the review root. */
+  get git(): GitBatch {
+    if (!this.rootRepo) {
+      throw new LhrError('NOT_A_REPO', `${this.root} is not inside a git repository`);
+    }
+    return this.rootRepo.git;
+  }
 
   newId(): string {
     return createId(this.now(), this.random());
@@ -142,7 +152,7 @@ export class Tree implements LhrTree {
   }
 
   anchors(threads: ThreadView[], opts?: AnchorOptions): Promise<Map<string, AnchorResult>> {
-    return computeAnchors({ root: this.root, gitPath: this.gitPath, git: this.git }, threads, opts);
+    return computeAnchors({ root: this.root, gitPath: this.gitPath, repos: this.repos }, threads, opts);
   }
 
   createDraftThread(input: CreateDraftThreadInput): Promise<CreateDraftThreadResult> {
@@ -166,7 +176,7 @@ export class Tree implements LhrTree {
   }
 
   dispose(): Promise<void> {
-    return this.git.dispose();
+    return this.repos.dispose();
   }
 }
 
@@ -176,12 +186,10 @@ export async function openTree(host: Host): Promise<LhrTree> {
   const gitPath = host.gitPath ?? 'git';
   const { root } = host;
 
-  let real: string;
   try {
     if (!(await stat(root)).isDirectory()) {
       throw new LhrError('NOT_A_REPO', `${root} is not a directory`);
     }
-    real = await realpath(root);
   } catch (err) {
     if (err instanceof LhrError) throw err;
     const code = (err as NodeJS.ErrnoException).code;
@@ -191,23 +199,9 @@ export async function openTree(host: Host): Promise<LhrTree> {
     throw new LhrError('NOT_A_REPO', `cannot access ${root}: ${String(code)}`);
   }
 
-  let toplevel: string;
-  try {
-    toplevel = (await runGit(gitPath, root, ['rev-parse', '--show-toplevel'])).trim();
-  } catch (err) {
-    if (err instanceof GitExitError) {
-      throw new LhrError('NOT_A_REPO', `${root} is not inside a git repository: ${err.stderr}`);
-    }
-    throw err;
-  }
-
-  if ((await realpath(toplevel)) !== real) {
-    throw new LhrError(
-      'NOT_A_REPO',
-      `${root} is not the repository root; the toplevel is ${toplevel}`,
-    );
-  }
-
   await checkFormat(root);
-  return new Tree(root, GitBatch.start(gitPath, root), now, random, gitPath);
+  const repos = new RepoSet(root, gitPath);
+  // Fails fast with GIT_FAILED when git itself can't run.
+  const rootRepo = await repos.forDir('');
+  return new Tree(root, repos, rootRepo, now, random, gitPath);
 }
