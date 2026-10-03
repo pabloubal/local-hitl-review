@@ -5,6 +5,7 @@ import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
+import { mcpCommand } from './mcp/command.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
 
@@ -115,6 +116,6 @@ export const HANDLERS: Record<string, Command> = {
   'thread reopen': notImplemented('thread reopen'),
   'review submit': notImplemented('review submit'),
   check: notImplemented('check'),
-  mcp: notImplemented('mcp'),
+  mcp: mcpCommand,
   __debug: debug,
 };
