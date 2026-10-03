@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { binMode, binPath, build, lhr, pkgVersion } from './helper.mjs';
+import { binMode, binPath, build, lhr, mkRepo, pkgVersion } from './helper.mjs';
 
 const COMMANDS = [
   ['init'],
@@ -82,25 +82,65 @@ test('unknown command exits 2 with a try: line on stderr', () => {
   assert.equal(r.status, 2);
   assert.equal(r.stdout, '');
   assert.match(r.stderr, /unknown command/);
-  assert.match(r.stderr, /^try: lhr --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr --help$/m);
   assert.ok(r.stderr.split('\n').length <= 4, 'does not dump full help');
 });
 
 test('unknown verb exits 2 pointing at the group help', () => {
   const r = lhr(['thread', 'frobnicate']);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /^try: lhr thread --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr thread --help$/m);
 });
 
 test('unknown flag exits 2 with a try: line', () => {
   const r = lhr(['inbox', '--nope']);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /^try: lhr inbox --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
 });
 
 test('recognised command without an implementation exits 2 and says so', () => {
-  const r = lhr(['inbox']);
+  const repo = mkRepo();
+  const r = lhr(['inbox'], { cwd: repo });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /not implemented/);
-  assert.match(r.stderr, /^try: lhr inbox --help$/m);
+  assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
+});
+
+test('global flags include --name', () => {
+  assert.match(lhr(['inbox', '--help']).stdout, /^  --name <name>/m);
+  assert.match(lhr(['--help']).stdout, /^  --name <name>/m);
+});
+
+const SPEC_FLAGS = {
+  'thread list': ['--status', '--round', '--whose-turn', '--path'],
+  'thread create': ['--side', '--base-commit', '--path', '--line', '--end-line', '--severity'],
+  'thread reply': ['--severity', '--body', '--client-id'],
+  'review submit': ['--verdict', '--summary', '--body', '--client-id'],
+};
+for (const [cmd, flags] of Object.entries(SPEC_FLAGS)) {
+  test(`help for lhr ${cmd} lists spec flags`, () => {
+    const out = lhr([...cmd.split(' '), '--help']).stdout;
+    for (const f of flags) assert.match(out, new RegExp(`^  ${f}\\b`, 'm'), f);
+  });
+}
+
+test('review submit help documents --summary, alias --body and all verdicts', () => {
+  const out = lhr(['review', 'submit', '--help']).stdout;
+  assert.match(out, /^  --summary <text>/m);
+  assert.match(out, /^  --body <text>.*alias/im);
+  assert.match(out, /approve\|comment\|request-changes/);
+});
+
+test('check help has an Exit codes section', () => {
+  const out = lhr(['check', '--help']).stdout;
+  assert.match(out, /^Exit codes:$/m);
+  assert.doesNotMatch(out, /^Notes:/m);
+});
+
+test('mcp help lists only --repo and --help', () => {
+  const out = lhr(['mcp', '--help']).stdout;
+  assert.match(out, /^  --repo <path>/m);
+  for (const f of ['--json', '--as', '--dry-run', '--name']) {
+    assert.doesNotMatch(out, new RegExp(`^  ${f}`, 'm'));
+  }
 });

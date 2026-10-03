@@ -11,12 +11,17 @@ export interface CommandHelp {
   flags?: [string, string][];
   examples: string[];
   notes?: string[];
+  /** Exit codes worth documenting (rendered as an `Exit codes:` section). */
+  exitCodes?: [string, string][];
+  /** Global flags that apply; defaults to all of GLOBAL_FLAGS. */
+  globals?: string[];
 }
 
 export const GLOBAL_FLAGS: [string, string][] = [
   ['--repo <path>', 'Start path for review-root discovery'],
   ['--json', 'Print the JSON envelope on stdout instead of text'],
   ['--as human|agent', 'Override the identity mode'],
+  ['--name <name>', 'Agent author name (agent mode only)'],
   ['--dry-run', 'Write commands only: write nothing'],
   ['-h, --help', 'Show help for this command'],
 ];
@@ -42,7 +47,9 @@ export const COMMANDS: CommandHelp[] = [
     usage: 'lhr thread list [flags]',
     flags: [
       ['--whose-turn human|agent', 'Only threads waiting on this side'],
-      ['--path <path>', 'Only threads anchored under this path'],
+      ['--status open|resolved|all', 'Filter by status (default open)'],
+      ['--path <path>', 'Exact file path, or a directory prefix'],
+      ['--round <id>', 'Only threads with a message in this round (full round ID)'],
     ],
     examples: ['lhr thread list', 'lhr thread list --whose-turn agent --path src/auth --json'],
   },
@@ -62,8 +69,13 @@ export const COMMANDS: CommandHelp[] = [
       ['-', 'Read the message body from stdin'],
     ],
     flags: [
+      ['--path <path>', 'File path (instead of the positional form, for paths containing :)'],
+      ['--line <n>', 'Start line (with --path)'],
+      ['--end-line <n>', 'End line, at least --line (with --path)'],
+      ['--side new|old', 'Which side of a diff the lines refer to (default new)'],
+      ['--base-commit <sha>', 'Base commit (required with --side old)'],
       ['--body <text>', 'Message body (instead of stdin)'],
-      ['--severity <level>', 'Severity of the thread'],
+      ['--severity <level>', 'critical, high, medium or low'],
       ['--client-id <id>', 'Idempotency key: a retry with the same id is a no-op'],
     ],
     examples: [
@@ -82,6 +94,7 @@ export const COMMANDS: CommandHelp[] = [
     ],
     flags: [
       ['--body <text>', 'Message body (instead of stdin)'],
+      ['--severity <level>', 'critical, high, medium or low'],
       ['--client-id <id>', 'Idempotency key: a retry with the same id is a no-op'],
     ],
     examples: [
@@ -124,8 +137,9 @@ export const COMMANDS: CommandHelp[] = [
     usage: 'lhr review submit --verdict <v> [-] [flags]',
     args: [['-', 'Read the summary message from stdin']],
     flags: [
-      ['--verdict <v>', 'approve or request-changes'],
-      ['--body <text>', 'Summary message (instead of stdin)'],
+      ['--verdict approve|comment|request-changes', 'Verdict of the round (required)'],
+      ['--summary <text>', 'Summary message (instead of stdin)'],
+      ['--body <text>', 'Alias for --summary'],
       ['--client-id <id>', 'Idempotency key: a retry with the same id is a no-op'],
     ],
     examples: [
@@ -139,12 +153,17 @@ export const COMMANDS: CommandHelp[] = [
     summary: 'Validate the whole .lhr/ tree.',
     usage: 'lhr check [flags]',
     examples: ['lhr check', 'lhr check --json'],
-    notes: ['Exit codes: 0 clean, 1 errors found, 2 usage error.'],
+    exitCodes: [
+      ['0', 'No errors (warnings allowed)'],
+      ['1', 'At least one error found'],
+      ['2', 'Usage error'],
+    ],
   },
   {
     path: ['mcp'],
     summary: 'Run the MCP server on stdio.',
     usage: 'lhr mcp [flags]',
+    globals: ['--repo <path>', '-h, --help'],
     examples: ['lhr mcp', 'lhr mcp --repo /path/to/repo'],
   },
 ];
@@ -214,8 +233,10 @@ export function groupHelp(group: string): string {
 export function commandHelp(c: CommandHelp): string {
   const out = [c.summary, '', `Usage: ${c.usage}`, ''];
   if (c.args) out.push('Arguments:', ...pad(c.args), '');
-  out.push('Flags:', ...pad([...(c.flags ?? []), ...GLOBAL_FLAGS]), '');
+  const globals = c.globals ? GLOBAL_FLAGS.filter(([f]) => c.globals!.includes(f)) : GLOBAL_FLAGS;
+  out.push('Flags:', ...pad([...(c.flags ?? []), ...globals]), '');
   out.push('Examples:', ...c.examples.map((e) => `  ${e}`), '');
+  if (c.exitCodes) out.push('Exit codes:', ...pad(c.exitCodes), '');
   if (c.notes) out.push('Notes:', ...c.notes.map((n) => `  ${n}`), '');
   return out.join('\n');
 }
