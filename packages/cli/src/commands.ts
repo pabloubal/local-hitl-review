@@ -5,6 +5,8 @@ import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
+import { check } from './commands/check.js';
+import { inbox } from './commands/inbox.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
 
@@ -25,6 +27,8 @@ export interface CommandContext {
   /** Opens the tree at the root; disposed by the runner after the handler. */
   tree(): Promise<LhrTree>;
   author(): Promise<Author>;
+  /** Set by a handler to exit non-zero without an error (`lhr check` only). */
+  exitCode?: number;
   /** `lhr <path> --help`, for `see:` lines. */
   see: string;
   /** Prints success: the envelope under --json, else `text` on stdout. */
@@ -106,7 +110,7 @@ const debug: Command = {
 
 export const HANDLERS: Record<string, Command> = {
   init: { ...notImplemented('init'), needsRoot: false },
-  inbox: notImplemented('inbox'),
+  inbox,
   'thread list': notImplemented('thread list'),
   'thread show': notImplemented('thread show'),
   'thread create': notImplemented('thread create'),
@@ -114,7 +118,7 @@ export const HANDLERS: Record<string, Command> = {
   'thread resolve': notImplemented('thread resolve'),
   'thread reopen': notImplemented('thread reopen'),
   'review submit': notImplemented('review submit'),
-  check: notImplemented('check'),
+  check,
   mcp: notImplemented('mcp'),
   __debug: debug,
 };
