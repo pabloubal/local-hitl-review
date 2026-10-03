@@ -55,6 +55,7 @@ export interface Identity {
 export function resolveIdentity(
   flags: { as?: string; name?: string },
   env: NodeJS.ProcessEnv,
+  write = true,
 ): Identity {
   const session = env.LHR_SESSION_ID ? env.LHR_SESSION_ID : undefined;
   const wanted = flags.as ?? (session ? 'agent' : 'human');
@@ -64,7 +65,7 @@ export function resolveIdentity(
     if (flags.name !== undefined) warnings.push('--name is ignored in human mode');
     return { mode, warnings };
   }
-  if (!session) {
+  if (!session && write) {
     warnings.push('--as agent without LHR_SESSION_ID: writes will carry no session');
   }
   const name = flags.name ?? (env.LHR_AGENT_NAME ? env.LHR_AGENT_NAME : DEFAULT_AGENT_NAME);

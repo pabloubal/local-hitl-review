@@ -39,6 +39,10 @@ export interface Command {
   options?: OptionsConfig;
   /** False for commands that don't walk up to a review root (`init`). */
   needsRoot?: boolean;
+  /** Global flags this command does not accept (a usage error when given). */
+  rejects?: (keyof typeof GLOBAL_OPTIONS)[];
+  /** True (or true for these flag values) when the command writes; gates write-only warnings. */
+  writes?: boolean | ((values: Record<string, string | boolean | undefined>) => boolean);
   run(ctx: CommandContext): Promise<void>;
 }
 
@@ -59,11 +63,12 @@ const notImplemented = (name: string): Command => ({
 
 /**
  * Internal diagnostics for the foundations: not in help, not a public
- * interface. Lets built-binary tests reach context, errors, stdin and term
+ * interface, and only reachable with LHR_DEBUG=1. Lets built-binary tests reach context, errors, stdin and term
  * before the real commands land.
  */
 const debug: Command = {
-  options: { probe: { type: 'string' } },
+  options: { probe: { type: 'string' }, write: { type: 'boolean' } },
+  writes: (v) => v.write === true,
   async run(ctx) {
     const [sub, arg] = ctx.args;
     switch (sub) {
@@ -84,6 +89,8 @@ const debug: Command = {
         return;
       case 'fail':
         throw new CliError(arg as never, `simulated ${arg}`, {});
+      case 'crash':
+        throw new Error('boom');
       case 'stdin':
         ctx.succeed({ body: await readStdin(ctx.see) });
         return;
@@ -105,16 +112,17 @@ const debug: Command = {
 };
 
 export const HANDLERS: Record<string, Command> = {
-  init: { ...notImplemented('init'), needsRoot: false },
+  init: { ...notImplemented('init'), needsRoot: false, writes: true },
   inbox: notImplemented('inbox'),
   'thread list': notImplemented('thread list'),
   'thread show': notImplemented('thread show'),
-  'thread create': notImplemented('thread create'),
-  'thread reply': notImplemented('thread reply'),
-  'thread resolve': notImplemented('thread resolve'),
-  'thread reopen': notImplemented('thread reopen'),
-  'review submit': notImplemented('review submit'),
+  'thread create': { ...notImplemented('thread create'), writes: true },
+  'thread reply': { ...notImplemented('thread reply'), writes: true },
+  'thread resolve': { ...notImplemented('thread resolve'), writes: true },
+  'thread reopen': { ...notImplemented('thread reopen'), writes: true },
+  'review submit': { ...notImplemented('review submit'), writes: true },
   check: notImplemented('check'),
-  mcp: notImplemented('mcp'),
+  // Always starts (resolves the root per tool call); no --name (mcp.md § Identity).
+  mcp: { ...notImplemented('mcp'), needsRoot: false, rejects: ['name'] },
   __debug: debug,
 };

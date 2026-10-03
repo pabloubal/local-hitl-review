@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { binPath, build, context, lhr, mkRepo, tmpDir } from './helper.mjs';
@@ -113,9 +113,12 @@ test('identity: --as human beats LHR_SESSION_ID', () => {
   assert.deepEqual(json.data.author, { kind: 'human', name: 'Grace' });
 });
 
-test('identity: --as agent without a session warns on stderr and omits session', () => {
+test('identity: --as agent without a session warns on stderr for writes only', () => {
   const repo = mkRepo();
-  const r = context(['--as', 'agent'], { cwd: repo });
+  const read = context(['--as', 'agent'], { cwd: repo });
+  assert.equal(read.status, 0);
+  assert.doesNotMatch(read.stderr, /LHR_SESSION_ID/);
+  const r = context(['--as', 'agent', '--write'], { cwd: repo });
   assert.equal(r.status, 0);
   assert.deepEqual(r.json.data.author, { kind: 'agent', name: 'claude-code' });
   assert.match(r.stderr, /^warning: .*LHR_SESSION_ID/m);
@@ -271,7 +274,7 @@ test('exit 130 on SIGINT with only a newline and no partial JSON', async () => {
   const repo = mkRepo();
   const child = spawn(process.execPath, [binPath, '__debug', 'wait', '--json'], {
     cwd: repo,
-    env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '' },
+    env: { ...process.env, LHR_DEBUG: '1', NO_COLOR: '1', FORCE_COLOR: '' },
   });
   let out = '';
   let err = '';
@@ -306,4 +309,76 @@ test('colour is off when piped, whatever the environment says', () => {
     env: { NO_COLOR: '', FORCE_COLOR: '1' },
   });
   assert.equal(JSON.parse(r.stdout).data.color, false);
+});
+
+// ---- review fixes
+
+test('__debug is unavailable without LHR_DEBUG=1', () => {
+  for (const v of ['', '0']) {
+    const r = lhr(['__debug', 'context'], { env: { LHR_DEBUG: v } });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /^error: unknown command __debug \(INVALID_INPUT\)$/m);
+  }
+});
+
+test('parse errors are one line: error: <msg> (CODE)', () => {
+  const repo = mkRepo();
+  for (const args of [
+    ['inbox', '--repo'],
+    ['inbox', '--bogus'],
+  ]) {
+    const r = lhr(args, { cwd: repo });
+    assert.equal(r.status, 2);
+    const first = r.stderr.split('\n')[0];
+    assert.match(first, /^error: .+ \(INVALID_INPUT\)$/, r.stderr);
+    assert.doesNotMatch(r.stderr, /To specify/);
+  }
+});
+
+test('--json is honoured even when a value-less option swallows it', () => {
+  const repo = mkRepo();
+  const r = lhr(['inbox', '--repo', '--json'], { cwd: repo });
+  assert.equal(r.status, 2);
+  assert.equal(r.stderr, '');
+  const env = JSON.parse(r.stdout);
+  assert.equal(env.error.code, 'INVALID_INPUT');
+  assert.doesNotMatch(env.error.message, /\n/);
+});
+
+test('mcp starts without a review root and rejects --name', () => {
+  const dir = tmpDir();
+  const r = lhr(['mcp'], { cwd: dir });
+  assert.doesNotMatch(r.stderr, /NOT_A_REPO/);
+  const n = lhr(['mcp', '--name', 'x'], { cwd: dir });
+  assert.equal(n.status, 2);
+  assert.match(n.stderr, /^error: .*--name.* \(INVALID_INPUT\)$/m);
+});
+
+test('a non-LhrError is reported as an unexpected internal error', () => {
+  const repo = mkRepo();
+  const r = lhr(['__debug', 'crash', '--json'], { cwd: repo });
+  assert.equal(r.status, 5);
+  const e = JSON.parse(r.stdout).error;
+  assert.match(e.message, /^unexpected internal error: boom/);
+});
+
+test('stdin: - on a terminal exits 2 instead of blocking', (t) => {
+  const probe = spawnSync('script', ['-q', '/dev/null', 'true'], { encoding: 'utf8' });
+  if (probe.error || probe.status !== 0) return t.skip('script(1) unavailable');
+  build();
+  const repo = mkRepo();
+  const cmd = [process.execPath, binPath, '__debug', 'stdin', '-', '--json'];
+  const args =
+    process.platform === 'darwin'
+      ? ['-q', '/dev/null', ...cmd]
+      : ['-qec', cmd.map((c) => `'${c}'`).join(' '), '/dev/null'];
+  const r = spawnSync('script', args, {
+    cwd: repo,
+    encoding: 'utf8',
+    timeout: 10_000,
+    env: { ...process.env, LHR_DEBUG: '1', NO_COLOR: '1', FORCE_COLOR: '' },
+  });
+  assert.equal(r.signal, null, 'did not hang');
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stdout, /INVALID_INPUT/);
 });

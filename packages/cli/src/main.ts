@@ -1,10 +1,17 @@
 import { parseArgs } from 'node:util';
 import { openTree, type LhrTree } from '../../core/src/index.js';
 import { COMMANDS, GROUPS, commandHelp, groupHelp, topLevelHelp } from './help.js';
-import { GLOBAL_OPTIONS, HANDLERS, type Command, type CommandContext } from './commands.js';
+import {
+  GLOBAL_OPTIONS,
+  HANDLERS,
+  type Command,
+  type CommandContext,
+  type OptionsConfig,
+} from './commands.js';
 import { authorFor, discoverRoot, resolveIdentity, resolveStart } from './context.js';
 import {
   CliError,
+  oneLine,
   EXIT,
   describeError,
   errorEnvelope,
@@ -26,9 +33,15 @@ function route(argv: string[]) {
   });
 }
 
+/** `--json` anywhere before `--`, independent of what the option parser made of values. */
+function wantsJson(argv: string[]): boolean {
+  const end = argv.indexOf('--');
+  return (end < 0 ? argv : argv.slice(0, end)).includes('--json');
+}
+
 export async function run(argv: string[]): Promise<number> {
   const pre = route(argv);
-  const json = pre.values.json === true;
+  const json = wantsJson(argv);
   const details: ErrorDetails = {};
   try {
     return await dispatch(argv, pre, details);
@@ -76,7 +89,7 @@ async function dispatch(
     }
     path = [first, second];
   } else if (
-    first === '__debug' ||
+    (first === '__debug' && process.env.LHR_DEBUG === '1') ||
     COMMANDS.some((c) => c.path.length === 1 && c.path[0] === first)
   ) {
     path = [first];
@@ -108,12 +121,12 @@ async function execute(
   try {
     parsed = parseArgs({
       args: argv,
-      options: { ...GLOBAL_OPTIONS, ...command.options },
+      options: { ...accepted(command), ...command.options },
       allowPositionals: true,
       strict: true,
     });
   } catch (err) {
-    throw usageError((err as Error).message.split('. ')[0], see);
+    throw usageError(oneLine((err as Error).message), see);
   }
   const values = parsed.values as CommandContext['values'];
   const args = parsed.positionals.slice(path.length);
@@ -129,7 +142,8 @@ async function execute(
   const root = command.needsRoot === false ? undefined : discoverRoot(start);
   details.root = root;
 
-  const identity = resolveIdentity({ as, name: values.name as string | undefined }, env);
+  const isWrite = typeof command.writes === 'function' ? command.writes(values) : !!command.writes;
+  const identity = resolveIdentity({ as, name: values.name as string | undefined }, env, isWrite);
   for (const w of identity.warnings) warn(w);
 
   const json = values.json === true;
@@ -149,7 +163,7 @@ async function execute(
         throw new CliError('NOT_A_REPO', `no review root for lhr ${name}`, {
           details,
         });
-      return (tree ??= await openTree({ root }));
+      return (tree ??= activeTree = await openTree({ root }));
     },
     async author() {
       return authorFor(identity, await ctx.tree());
@@ -163,15 +177,35 @@ async function execute(
   try {
     await command.run(ctx);
   } finally {
+    activeTree = undefined;
     await tree?.dispose();
   }
   return EXIT.OK;
 }
 
+function accepted(command: Command): OptionsConfig {
+  const opts: OptionsConfig = { ...GLOBAL_OPTIONS };
+  for (const k of command.rejects ?? []) delete opts[k];
+  return opts;
+}
+
+let activeTree: LhrTree | undefined;
+
 // Ctrl-C: a newline on stderr, nothing on stdout (so no partial JSON), exit 130.
+// Dispose the tree and let queued output drain before exiting, so piped output isn't cut.
 process.on('SIGINT', () => {
   process.stderr.write('\n');
-  process.exit(EXIT.SIGINT);
+  process.exitCode = EXIT.SIGINT;
+  void (async () => {
+    try {
+      await activeTree?.dispose();
+    } catch {
+      // exiting anyway
+    }
+    await new Promise<void>((done) => process.stdout.write('', () => done()));
+    await new Promise<void>((done) => process.stderr.write('', () => done()));
+    process.exit(EXIT.SIGINT);
+  })();
 });
 
 process.exitCode = await run(process.argv.slice(2));
