@@ -298,6 +298,33 @@ describe('LhrTree.anchors: deletes and moves (scenario 4)', () => {
     });
   });
 
+  it('4c: deleting one of two identical blocks does not move the thread to the other', async () => {
+    const blk = ['function dup(a) {', '  const r = a * 2;', '  return r;', '}'];
+    const file = (): string[] => {
+      const l = base30();
+      l.splice(20, 0, ...blk);
+      l.splice(4, 0, ...blk);
+      return l;
+    };
+    await withRepo({ 'a.ts': file() }, async (repo) => {
+      const t = await lineThread(repo, 'a.ts', 5, 8);
+      const l = file();
+      l.splice(4, 4);
+      await repo.write('a.ts', text(l));
+      await expectOne(repo, t, 'orphaned', 'diff');
+    });
+  });
+
+  it('4c2: a block pasted as split hunks (blank line and brace paired) -> current, moved', async () => {
+    const blk = ['function foo() {', '  a();', '', '  b();', '}'];
+    const xs = Array.from({ length: 10 }, (_, i) => `x${i}`);
+    await withRepo({ 'a.ts': [...blk, ...xs, '', 'Y'] }, async (repo) => {
+      const t = await lineThread(repo, 'a.ts', 1, 5);
+      await repo.write('a.ts', text([...xs, ...blk, 'Y']));
+      await expectOne(repo, t, 'current 11-15', 'moved');
+    });
+  });
+
   it('4d: file deleted -> orphaned, method path', async () => {
     await withRepo({ 'a.ts': base30() }, async (repo) => {
       const t = await lineThread(repo, 'a.ts', 10, 12);
@@ -825,6 +852,47 @@ describe('LhrTree.anchors: robustness', () => {
     });
   });
 
+  for (const [chars, expected] of [
+    [15, 'orphaned'],
+    [16, 'current moved/a.ts:10-10'],
+  ] as const) {
+    it(`untracked rename search needs 16 non-whitespace characters (${chars})`, async () => {
+      const line = `  ${'x'.repeat(chars - 1)};`;
+      const lines = base30();
+      lines[9] = line;
+      await withRepo({ 'src/a.ts': lines }, async (repo) => {
+        const t = await lineThread(repo, 'src/a.ts', 10, 10, { blob: MISSING_BLOB });
+        await repo.write('moved/a.ts', text(lines));
+        await unlink(path.join(repo.root, 'src/a.ts'));
+        const r = await anchorOne(repo, t);
+        assert.equal(fmt(r, t), expected);
+      });
+    });
+  }
+
+  it('skipped untracked files do not use up the candidate cap', async () => {
+    await withRepo({ 'src/a.ts': base30() }, async (repo) => {
+      const t = await lineThread(repo, 'src/a.ts', 10, 12);
+      // 201 higher-ranked (same basename) binary files and one oversize one.
+      for (let i = 0; i < 201; i++) await repo.write(`bin${i}/a.ts`, '\0binary\n');
+      await repo.write('big/a.ts', 'x'.repeat(1024 * 1024 + 1));
+      await repo.write('ok/other.txt', text(base30()));
+      await unlink(path.join(repo.root, 'src/a.ts'));
+      const r = await anchorOne(repo, t);
+      assert.equal(fmt(r, t), 'current ok/other.txt:10-12');
+    });
+  });
+
+  it('probes at most 10x the candidate cap of untracked files', async () => {
+    await withRepo({ 'src/a.ts': base30() }, async (repo) => {
+      const t = await lineThread(repo, 'src/a.ts', 10, 12);
+      for (let i = 0; i < 2001; i++) await repo.write(`bin${i}/a.ts`, '\0binary\n');
+      await repo.write('ok/other.txt', text(base30()));
+      await unlink(path.join(repo.root, 'src/a.ts'));
+      await expectOne(repo, t, 'orphaned', 'path');
+    });
+  });
+
   it('a git diff failure on one file orphans its threads only', async () => {
     await withRepo({ 'a.ts': base30(), 'bad.ts': base30() }, async (repo) => {
       const good = await lineThread(repo, 'a.ts', 10, 12);
@@ -878,7 +946,10 @@ describe('LhrTree.anchors: robustness', () => {
     await withRepo({ 'real.ts': base30() }, async (repo) => {
       await symlink('real.ts', path.join(repo.root, 'link.ts'));
       const f = await fileThread(repo, 'link.ts');
-      assert.equal((await anchorOne(repo, f)).state, 'current');
+      const r = await anchorOne(repo, f);
+      assert.equal(r.state, 'current');
+      // The link keeps its own name; it is not resolved to the target.
+      assert.equal(r.path, 'link.ts');
     });
   });
 });
