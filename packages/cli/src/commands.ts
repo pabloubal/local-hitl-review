@@ -4,6 +4,7 @@ import type { ParseArgsConfig } from 'node:util';
 import type { Author, Diagnostic, LhrTree } from '../../core/src/index.js';
 import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
+import { THREAD_WRITE_HANDLERS } from './commands/thread-write.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
@@ -116,5 +117,6 @@ export const HANDLERS: Record<string, Command> = {
   'review submit': notImplemented('review submit'),
   check: notImplemented('check'),
   mcp: notImplemented('mcp'),
+  ...THREAD_WRITE_HANDLERS,
   __debug: debug,
 };
