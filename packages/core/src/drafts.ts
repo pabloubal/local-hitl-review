@@ -52,12 +52,16 @@ export interface SubmitRoundInput {
   verdict: Verdict;
   summary: string;
   author: Author;
+  /** Caller-chosen ID, stored on the round file; a retry with a known one returns that round. */
+  clientId?: string;
 }
 
 export interface SubmitRoundResult {
   roundId: string;
   threadIds: string[];
   messageIds: string[];
+  /** false when `clientId` matched an existing round, which is returned untouched */
+  created: boolean;
   /**
    * true when this call finished an earlier, interrupted round, or when it waited for a
    * concurrent submit with the same author, verdict and summary and returns that round
@@ -290,6 +294,7 @@ function roundText(input: SubmitRoundInput): string {
       verdict: input.verdict,
       'author.kind': input.author.kind,
       'author.name': input.author.name,
+      ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
     },
     body,
   );
@@ -498,12 +503,15 @@ export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<
   if (!VERDICTS.includes(input.verdict)) {
     throw invalid(`verdict must be approve, comment or request-changes: ${String(input.verdict)}`);
   }
+  if (input.clientId !== undefined && input.clientId.trim() === '') {
+    throw invalid('clientId must not be empty');
+  }
   const round = roundText(input);
   try {
     // Rounds written while this call waits for the lock belong to a concurrent submit.
     const before = new Set(await listRoundIds(tree));
     return await locked(tree, 'submitRound', (lock) =>
-      runRound(tree, round, lock.waited ? before : undefined),
+      runRound(tree, round, lock.waited ? before : undefined, input.clientId),
     );
   } catch (err) {
     if (err instanceof LhrError) throw err;
@@ -548,6 +556,17 @@ async function findDoubleSubmit(
   return undefined;
 }
 
+/** The ID of the round file that stores `clientId`, if any. */
+async function findRoundByClientId(tree: Tree, clientId: string): Promise<string | undefined> {
+  for (const id of (await listRoundIds(tree)).sort()) {
+    const text = await readOptional(path.join(roundsDir(tree), `${id}.md`));
+    if (text === undefined) continue;
+    const parsed = parseFrontmatter(text, `.lhr/rounds/${id}.md`);
+    if (parsed.diagnostics.length === 0 && parsed.data.clientId === clientId) return id;
+  }
+  return undefined;
+}
+
 /**
  * Runs under the drafts lock: no other submit or draft edit can interleave.
  * `roundsBefore` is set only when the call had to wait for the lock.
@@ -556,13 +575,26 @@ async function runRound(
   tree: Tree,
   roundContent: string,
   roundsBefore: Set<string> | undefined,
+  clientId?: string,
 ): Promise<SubmitRoundResult> {
   const markerFile = path.join(draftsDir(tree), MARKER);
   let marker = await readMarker(markerFile);
   const resumed = marker !== undefined;
+  let created = true;
+  if (clientId !== undefined) {
+    // An idempotent retry: return the known round without touching drafts, unless it is
+    // the round an interrupted run left in the marker, which is finished first.
+    const known = await findRoundByClientId(tree, clientId);
+    if (known !== undefined) {
+      if (marker === undefined || marker.round !== known) {
+        return roundResult(tree, known, false, [], false);
+      }
+      created = false;
+    }
+  }
   if (marker === undefined && roundsBefore !== undefined) {
     const joined = await findDoubleSubmit(tree, roundContent, roundsBefore);
-    if (joined !== undefined) return roundResult(tree, joined, true, []);
+    if (joined !== undefined) return roundResult(tree, joined, true, [], false);
   }
   await ensureDrafts(tree);
   await cleanStaleTemps(tree);
@@ -591,7 +623,7 @@ async function runRound(
   }
   await rmdirIfEmpty(draftThreadsDir(tree));
   await rm(markerFile, { force: true });
-  return roundResult(tree, roundId, resumed, skippedDraftIds);
+  return roundResult(tree, roundId, resumed, skippedDraftIds, created);
 }
 
 async function roundResult(
@@ -599,6 +631,7 @@ async function roundResult(
   roundId: string,
   resumed: boolean,
   skippedDraftIds: string[],
+  created: boolean,
 ): Promise<SubmitRoundResult> {
   const threadIds: string[] = [];
   const messageIds: string[] = [];
@@ -606,5 +639,5 @@ async function roundResult(
     if (thread.messages[0]?.round === roundId) threadIds.push(thread.id);
     for (const m of thread.messages) if (m.round === roundId) messageIds.push(m.id);
   }
-  return { roundId, threadIds, messageIds, resumed, skippedDraftIds };
+  return { roundId, threadIds, messageIds, created, resumed, skippedDraftIds };
 }

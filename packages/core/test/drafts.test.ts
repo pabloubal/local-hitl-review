@@ -367,6 +367,7 @@ reply
         roundId: '20261001T120000Z-rrrrrr',
         threadIds: [],
         messageIds: [],
+        created: true,
         resumed: false,
         skippedDraftIds: [],
       });
@@ -1169,6 +1170,100 @@ describe('drafts lock: review follow-ups', () => {
         resetLockSeams();
       }
       assert.equal((await c.ls('.lhr/drafts')).includes('.lock'), false);
+    });
+  });
+
+  describe('clientId', () => {
+    it('stores clientId on the round file and returns created: true', async () => {
+      await withCtx(async (c) => {
+        c.randoms.push('rrrrrr');
+        const res = await c.tree.submitRound({
+          verdict: 'comment',
+          summary: 's',
+          author: HUMAN,
+          clientId: 'abc',
+        });
+        assert.equal(res.created, true);
+        assert.equal(
+          await c.read(`.lhr/rounds/${res.roundId}.md`),
+          '---\nverdict: comment\nauthor.kind: human\nauthor.name: LHR Test\nclientId: abc\n---\ns\n',
+        );
+        assert.deepEqual((await c.tree.load()).problems, []);
+      });
+    });
+
+    it('a retry with a known clientId returns the same round and writes nothing', async () => {
+      await withCtx(async (c) => {
+        const tid = await agentThread(c);
+        c.randoms.push('mmmmmm', 'rrrrrr');
+        const m = await c.tree.addDraftMessage(tid, { body: 'one', author: HUMAN });
+        const first = await c.tree.submitRound({
+          verdict: 'comment',
+          summary: 's',
+          author: HUMAN,
+          clientId: 'abc',
+        });
+        const before = await c.ls('.lhr/rounds');
+        // a draft added after the first submit must stay a draft on the retry
+        c.randoms.push('nnnnnn');
+        const later = await c.tree.addDraftMessage(tid, { body: 'two', author: HUMAN });
+        const again = await c.tree.submitRound({
+          verdict: 'request-changes',
+          summary: 'other',
+          author: HUMAN,
+          clientId: 'abc',
+        });
+        assert.equal(again.created, false);
+        assert.equal(again.roundId, first.roundId);
+        assert.deepEqual(again.messageIds, [m.messageId]);
+        assert.deepEqual(await c.ls('.lhr/rounds'), before);
+        assert.equal(
+          (await c.read(`.lhr/rounds/${first.roundId}.md`)).includes('request-changes'),
+          false,
+        );
+        assert.equal(
+          (await c.ls('.lhr/drafts/threads/' + tid)).includes(`${later.messageId}.md`),
+          true,
+        );
+      });
+    });
+
+    it('a different clientId, or none, writes a second round', async () => {
+      await withCtx(async (c) => {
+        c.randoms.push('rrrrrr');
+        const a = await c.tree.submitRound({
+          verdict: 'comment',
+          summary: 's',
+          author: HUMAN,
+          clientId: 'abc',
+        });
+        c.clock('130000');
+        c.randoms.push('ssssss');
+        const b = await c.tree.submitRound({
+          verdict: 'comment',
+          summary: 's',
+          author: HUMAN,
+          clientId: 'def',
+        });
+        c.clock('140000');
+        c.randoms.push('tttttt');
+        const n = await c.tree.submitRound({ verdict: 'comment', summary: 's', author: HUMAN });
+        assert.equal(b.created, true);
+        assert.equal(n.created, true);
+        assert.notEqual(a.roundId, b.roundId);
+        assert.equal((await c.ls('.lhr/rounds')).length, 3);
+        assert.deepEqual((await c.tree.load()).problems, []);
+      });
+    });
+
+    it('rejects an empty clientId', async () => {
+      await withCtx(async (c) => {
+        await assert.rejects(
+          c.tree.submitRound({ verdict: 'approve', summary: '', author: HUMAN, clientId: ' ' }),
+          hasCode('INVALID_INPUT'),
+        );
+        assert.equal((await c.ls('.lhr')).includes('rounds'), false);
+      });
     });
   });
 });
