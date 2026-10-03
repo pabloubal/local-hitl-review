@@ -145,7 +145,9 @@ const createIn = z
   })
   .strict();
 const replyIn = z.object({ id, body, clientId: z.string().min(1).optional() }).strict();
-const statusIn = z.object({ id, body: body.optional() }).strict();
+const statusIn = z
+  .object({ id, body: body.optional(), clientId: z.string().min(1).optional() })
+  .strict();
 
 // ---- Shared helpers
 
@@ -202,22 +204,34 @@ async function setStatus(
   args: In<typeof statusIn>,
   status: 'open' | 'resolved',
 ): Promise<ToolOutput> {
+  if (args.clientId !== undefined && args.body === undefined) {
+    throw new CliError(
+      'INVALID_INPUT',
+      'clientId needs body: without one the call is already idempotent',
+    );
+  }
   const { root, tree } = await ctx.open();
   const snap = await tree.load();
   const t = resolveThread(snap, args.id);
   const author = ctx.author();
   const data: Record<string, unknown> = {};
   if (args.body !== undefined) {
-    const r = await tree.reply(t.id, { body: args.body, author, status });
+    const r = await tree.reply(t.id, {
+      body: args.body,
+      author,
+      status,
+      ...(args.clientId ? { clientId: args.clientId } : {}),
+    });
     Object.assign(data, { message: { id: r.messageId }, created: r.created });
-    data.changed = t.status !== status;
   } else {
     const r =
       status === 'resolved' ? await tree.resolve(t.id, author) : await tree.reopen(t.id, author);
     if (r.messageId !== undefined) data.message = { id: r.messageId };
-    Object.assign(data, { created: r.changed, changed: r.changed });
+    data.created = r.changed;
   }
   const thread = await written(tree, t.id);
+  // `changed` means the thread's status changed, with or without a body.
+  data.changed = thread.status !== t.status;
   return { root, data: { thread, ...data }, diagnostics: snap.problems };
 }
 
@@ -384,7 +398,8 @@ export const TOOLS: ToolDef[] = [
     name: 'thread_resolve',
     description:
       'Mark a thread resolved. With `body`, posts that text as a reply and resolves in one ' +
-      'step. Resolving an already resolved thread succeeds and does nothing.',
+      'step; pass a `clientId` with a body so a retry is safe. Resolving an already resolved ' +
+      'thread without a body succeeds and does nothing.',
     input: statusIn,
     output: statusOut,
     annotations: write(true),
@@ -394,8 +409,9 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'thread_reopen',
     description:
-      'Reopen a resolved thread. With `body`, posts that text and reopens in one step. ' +
-      'Reopening an open thread succeeds and does nothing.',
+      'Reopen a resolved thread. With `body`, posts that text and reopens in one step; pass a ' +
+      '`clientId` with a body so a retry is safe. Reopening an open thread without a body ' +
+      'succeeds and does nothing.',
     input: statusIn,
     output: statusOut,
     annotations: write(true),

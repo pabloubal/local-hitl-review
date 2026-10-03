@@ -69,7 +69,7 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 | Tool                                  | `readOnlyHint` | `idempotentHint`                                        |
 | ------------------------------------- | -------------- | ------------------------------------------------------- |
 | `inbox`, `thread_list`, `thread_show` | `true`         | (not set)                                               |
-| `thread_resolve`, `thread_reopen`     | `false`        | `true`                                                  |
+| `thread_resolve`, `thread_reopen`     | `false`        | `true` (with `body`, given the same `clientId`)         |
 | `thread_reply`, `thread_create`       | `false`        | `false` (a retry is safe only with the same `clientId`) |
 
 The server never generates a `clientId` itself.
@@ -161,14 +161,14 @@ Opens a new thread to flag something the agent is unsure about. Written immediat
 
 ### `thread_resolve`
 
-- **Description guidance:** "Mark a thread resolved. With `body`, posts that text as a reply and resolves in one step. Resolving an already resolved thread succeeds and does nothing."
-- **Input:** `z.object({ id: z.string().min(1), body: z.string().min(1).optional() }).strict()`.
-- **Behaviour:** with `body`, `reply(id, { body, author, status: "resolved" })`; without, `resolve(id, author)`. Idempotent: an already-resolved thread succeeds with no new message.
-- **Output `data`:** `{ root, thread, message?, created, changed }`, as in `cli.md`. When nothing was written (`changed: false`), `message` is absent and `created` is `false`.
+- **Description guidance:** "Mark a thread resolved. With `body`, posts that text as a reply and resolves in one step; pass a `clientId` with a body so a retry is safe. Resolving an already resolved thread without a body succeeds and does nothing."
+- **Input:** `z.object({ id: z.string().min(1), body: z.string().min(1).optional(), clientId: z.string().min(1).optional() }).strict()`.
+- **Behaviour:** with `body`, `reply(id, { body, author, status: "resolved", clientId })`; without, `resolve(id, author)`. Idempotent: without `body`, an already-resolved thread succeeds with no new message; with `body`, a retry with the same `clientId` returns the existing message with `created: false`. `clientId` without `body` is `INVALID_INPUT` (the call is already idempotent, and a flag that can't be honoured is an error, as in `cli.md`).
+- **Output `data`:** `{ root, thread, message?, created, changed }`, as in `cli.md`. `changed` is `true` exactly when the thread's status changed; a body on a thread already in that state is `created: true, changed: false`. When nothing was written, `message` is absent and `created` is `false`.
 
 ### `thread_reopen`
 
-- **Description guidance:** "Reopen a resolved thread. With `body`, posts that text and reopens in one step. Reopening an open thread succeeds and does nothing."
+- **Description guidance:** "Reopen a resolved thread. With `body`, posts that text and reopens in one step; pass a `clientId` with a body so a retry is safe. Reopening an open thread without a body succeeds and does nothing."
 - **Input and behaviour:** as `thread_resolve`, with `status: "open"` and `reopen(id, author)`.
 - **Output `data`:** as `thread_resolve`.
 

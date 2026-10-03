@@ -568,6 +568,30 @@ test('thread_resolve / thread_reopen: idempotent, with and without body', async 
   });
 });
 
+test('thread_resolve / thread_reopen with body: clientId retry, changed = status changed', async () => {
+  const root = mkRoot();
+  const { threadId } = await humanThread(root);
+  await session({ start: root }, async ({ call }) => {
+    const args = { id: threadId, body: 'fixed', clientId: 'res-1' };
+    const r1 = ok(await call('thread_resolve', args));
+    assert.deepEqual([r1.created, r1.changed, r1.thread.status], [true, true, 'resolved']);
+    const r2 = ok(await call('thread_resolve', args));
+    assert.deepEqual([r2.created, r2.changed, r2.message.id], [false, false, r1.message.id]);
+    assert.equal(r2.thread.messageCount, 2, 'the retry wrote nothing');
+    // A body on a thread already in that state is a new message but no status change.
+    const r3 = ok(await call('thread_resolve', { id: threadId, body: 'also this' }));
+    assert.deepEqual([r3.created, r3.changed], [true, false]);
+    const o1 = ok(await call('thread_reopen', { id: threadId, body: 'again', clientId: 'ro-1' }));
+    assert.deepEqual([o1.created, o1.changed, o1.thread.status], [true, true, 'open']);
+    const o2 = ok(await call('thread_reopen', { id: threadId, body: 'again', clientId: 'ro-1' }));
+    assert.deepEqual([o2.created, o2.changed, o2.message.id], [false, false, o1.message.id]);
+    // clientId only means something with a body: without one the call is already idempotent.
+    const e = err(await call('thread_resolve', { id: threadId, clientId: 'x' }), 'INVALID_INPUT');
+    assert.match(e.message, /clientId/);
+    assert.match(e.example, /^thread_resolve \{/);
+  });
+});
+
 test('thread_create: file and line threads, clientId retry, bad anchors', async () => {
   const root = mkRoot();
   await session({ start: root }, async ({ call }) => {
