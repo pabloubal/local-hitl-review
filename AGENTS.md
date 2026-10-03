@@ -92,6 +92,7 @@ docs/            → documentation and agent guidelines
 - Use conventional commit format: `type(scope): subject`
 - Use **atomic commits** (one logical change per commit); preserve signatures, keep bisection useful
 - **Show test output as evidence before claiming work is complete** — never say "try again", "should work now", "tested", "verified", or "all green" without pasted command output
+- **Keep the verification skills in step with the product.** A change that adds or alters something a user or an agent can see or call (an extension view, command or comment action, an `lhr` command, an MCP tool, the `.review` format) updates the matching recipe in the same PR: `.claude/skills/verify-hitl-review/features/` for the VS Code extension, and the `lhr` verification skill for the CLI and MCP server once it exists. A new feature gets a new feature file and an index entry. Run the recipe live and paste its evidence before calling the work done. `/pstack:maintain-verification-skill` re-checks the whole map; run it after a stack of features lands and before a release. The skills are separate from the unit suites and from `packages/vscode/e2e`: a recipe does not run in CI unless it is also written as an e2e spec or a CLI test.
 - Before any edit, verify `pwd` resolves inside the intended repo worktree — not `.bare/`, not `~/.claude/skills/…`, not `~/.claude/plugins/cache/…` (those are read-only caches that get clobbered on update)
 - For upstream dependency fixes: run **full** test suite, not just affected tests
 - Force-push only with `--force-with-lease`
