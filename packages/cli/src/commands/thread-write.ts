@@ -389,8 +389,8 @@ function statusCommand(status: ThreadStatus): Command {
 }
 
 export const THREAD_WRITE_HANDLERS: Record<string, Command> = {
-  'thread create': create,
-  'thread reply': reply,
-  'thread resolve': statusCommand('resolved'),
-  'thread reopen': statusCommand('open'),
+  'thread create': { ...create, writes: true },
+  'thread reply': { ...reply, writes: true },
+  'thread resolve': { ...statusCommand('resolved'), writes: true },
+  'thread reopen': { ...statusCommand('open'), writes: true },
 };

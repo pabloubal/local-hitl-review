@@ -62,6 +62,13 @@ test('create (agent): writes immediately, returns thread and message ids', () =>
   assert.equal(file.status, 0, file.stderr);
 });
 
+test('thread writes are write commands: --as agent without a session warns', () => {
+  const dir = repoWithFile();
+  const r = run(['thread', 'create', 'src/a.ts', '--body', 'x', '--as', 'agent'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /writes will carry no session/);
+});
+
 test('create (agent): body from stdin with -', () => {
   const dir = repoWithFile();
   const r = agent(['thread', 'create', 'src/a.ts:1', '-'], dir, { input: 'multi\nline\n' });
