@@ -85,3 +85,16 @@ ls "$LHR_RUN/evidence"   # proof survives
 ```
 
 `stop` removes sessions, state and the hermetic git config, and terminates only MCP pids it recorded. The CLI itself has no background processes. The evidence directory is never deleted by the harness; remove it yourself when you no longer need it. Run `stop` after a failed attempt too.
+
+## Also run in CI
+
+The same flows exist as scenario tests in `packages/cli/test/scenarios-*.test.mjs` (shared fixtures in `scenario-helper.mjs`), which `npm test` runs on every PR with no workflow change:
+
+| Feature file                     | Scenario file                |
+| -------------------------------- | ---------------------------- |
+| `init-and-check`, `human-review` | `scenarios-review.test.mjs`  |
+| `agent-loop`                     | `scenarios-agent.test.mjs`   |
+| `anchors`                        | `scenarios-anchors.test.mjs` |
+| `mcp-server`                     | `scenarios-mcp.test.mjs`     |
+
+When you change a recipe, change its scenario in the same PR, and the reverse. The scenarios assert; this skill produces the evidence a human can read. #155 is a `todo` test in `scenarios-agent.test.mjs`: remove `todo` when core is fixed. The Playwright `e2e` job covers the VS Code extension only.

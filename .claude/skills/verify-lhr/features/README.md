@@ -30,6 +30,8 @@ Each feature file starts with an H1 and one paragraph, then exactly four H2s: `S
 
 ## Features
 
+Each feature also has CI scenarios in `packages/cli/test/scenarios-*.test.mjs` (see SKILL.md, "Also run in CI"); update both together.
+
 - [Initialize and check a review store](./init-and-check.md): `lhr init`, `lhr check`, `--version`, `--help`.
 - [Human review round](./human-review.md): creating draft threads, listing and showing them, `review submit`, retries, dry-runs.
 - [Agent inbox loop](./agent-loop.md): `inbox`, `thread reply`, `resolve`, `reopen`, `--client-id` idempotency, agent-mode limits.
