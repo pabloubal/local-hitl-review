@@ -49,6 +49,8 @@ export interface AnchorResult {
   /** "from branch X" label, only while X exists. */
   fromBranch?: string;
   method: AnchorMethod;
+  /** Why the thread is orphaned when its repo is gone (`REPO_MISSING`). */
+  diagnostic?: Diagnostic;
 }
 
 export interface AnchorOptions {
@@ -138,6 +140,7 @@ export const DiagnosticCode = {
   EmptyThread: 'EMPTY_THREAD',
   EmptyBody: 'EMPTY_BODY',
   UnreadableFile: 'UNREADABLE_FILE',
+  RepoMissing: 'REPO_MISSING',
   Symlink: 'SYMLINK',
   FormatMissing: 'FORMAT_MISSING',
   FormatVersion: 'FORMAT_VERSION',

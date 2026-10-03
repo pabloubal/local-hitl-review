@@ -4,6 +4,7 @@ import { LhrError } from './errors.js';
 import { serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
 import { GitExitError, runGit, runGitWithInput } from './git.js';
 import type { Anchor, Severity } from './model.js';
+import { pathNotInRepo, RepoSet } from './repos.js';
 
 export interface AnchorInput {
   path: string;
@@ -18,10 +19,13 @@ export interface AnchorInput {
   baseCommit?: string;
 }
 
-/** What the core needs to run git in a repo. */
+/** What the core needs to find the repo of a path and run git in it. */
 export interface CaptureEnv {
+  /** Review root; not necessarily a repo. */
   root: string;
   gitPath: string;
+  /** Shared repo discovery; built from `root` when absent. */
+  repos?: RepoSet;
 }
 
 export interface CapturedAnchor {
@@ -166,8 +170,18 @@ async function sourceContent(
  * Turns an AnchorInput into the saved anchor fields and the snapshot text.
  * Shared by immediate writes and drafts. Throws INVALID_INPUT for bad input.
  */
-export async function captureAnchor(env: CaptureEnv, input: AnchorInput): Promise<CapturedAnchor> {
-  validatePath(input.path);
+export async function captureAnchor(
+  rootEnv: CaptureEnv,
+  rootInput: AnchorInput,
+): Promise<CapturedAnchor> {
+  validatePath(rootInput.path);
+  const repos = rootEnv.repos ?? new RepoSet(rootEnv.root, rootEnv.gitPath);
+  const repo = await repos.forPath(rootInput.path);
+  if (!repo) throw pathNotInRepo(rootInput.path);
+  // Git runs in the path's repo on the repo-relative path; the saved
+  // anchor keeps the root-relative one.
+  const env: CaptureEnv = { root: repo.top, gitPath: rootEnv.gitPath };
+  const input: AnchorInput = { ...rootInput, path: repo.toRepoPath(rootInput.path) };
   const side = input.side ?? 'new';
   if (side !== 'new' && side !== 'old') {
     throw invalid(`side must be "new" or "old": ${String(side)}`);
@@ -185,7 +199,7 @@ export async function captureAnchor(env: CaptureEnv, input: AnchorInput): Promis
       : (await runGit(env.gitPath, env.root, ['rev-parse', 'HEAD'])).trim();
   const branch = await currentBranch(env);
   const base = {
-    path: input.path,
+    path: rootInput.path,
     side,
     commit,
     ...(branch !== undefined ? { branch } : {}),
@@ -208,7 +222,9 @@ export async function captureAnchor(env: CaptureEnv, input: AnchorInput): Promis
   const { content, blob } = await sourceContent(env, input, side, commit);
   const lines = splitLines(content);
   if (endLine > lines.length) {
-    throw invalid(`endLine ${endLine} is past the end of ${input.path} (${lines.length} lines)`);
+    throw invalid(
+      `endLine ${endLine} is past the end of ${rootInput.path} (${lines.length} lines)`,
+    );
   }
   const contextBefore = Math.min(CONTEXT_LINES, startLine - 1);
   const contextAfter = Math.min(CONTEXT_LINES, lines.length - endLine);

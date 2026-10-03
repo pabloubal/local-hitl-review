@@ -51,12 +51,13 @@ interface TreeSnapshot {
 interface ThreadFilter {
   status?: "open" | "resolved";
   whoseTurn?: "human" | "agent";
-  path?: string;
+  path?: string; // file or directory, relative to the review root
   round?: string;
   includeDrafts?: boolean; // default false
 }
 ```
 
+- **`path` is a prefix on whole path segments.** It matches `anchor.path` when they are equal or when `anchor.path` starts with `path + "/"`, so `repo1/src` matches `repo1/src/a.ts` but not `repo1/srcx/c.ts`. A trailing slash is ignored, and `""` or `"."` matches every path.
 - `load()` reads the whole tree into an immutable snapshot and computes every derived value except anchor state. Filtering happens in memory. The core doesn't watch files: the extension reloads on its `FileSystemWatcher`, and the MCP server reloads on each tool call.
 - **Drafts are hidden unless asked for.** The extension and the CLI's human mode pass `includeDrafts: true`. The MCP server and the CLI's agent mode never expose it. This is the single place that enforces "drafts stay hidden from agents until the round is submitted".
 
@@ -113,13 +114,14 @@ interface AnchorResult {
   endLine?: number;
   fromBranch?: string; // "from branch X" label, only while X exists
   method: "diff" | "text-search" | "moved" | "path" | "pinned";
+  diagnostic?: Diagnostic; // set with code REPO_MISSING when the thread's repo is gone
 }
 ```
 
 - **Batched**, so all threads on a file share one diff: 200 threads went from 8.6 s to 1.1 s in the re-anchoring prototype. The algorithm is in [ADR 0006](../adr/0006-comment-anchoring.md).
 - `overrides` replaces the on-disk content of a path, so the extension can re-anchor while a document has unsaved changes.
 - **`old`-side threads aren't re-anchored.** They keep their saved lines against `anchor.commit` and report `current` with `method: "pinned"`. If the commit is unreachable and the snapshot can't be found, they report `orphaned`.
-- A thread whose repo is gone (directory removed or no longer a repo) is `orphaned` with a `Diagnostic`, and its snapshot is still shown. Reads never throw for it.
+- A thread whose repo is gone (directory removed or no longer a repo) is `orphaned` with a `Diagnostic` (code `REPO_MISSING`, severity `warning`) in `AnchorResult.diagnostic`, and its snapshot is still shown. Reads never throw for it.
 - File threads report `current` while their file exists (after following renames), otherwise `orphaned`.
 
 ## Writing
