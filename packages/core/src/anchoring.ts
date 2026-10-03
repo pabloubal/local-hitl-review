@@ -27,11 +27,13 @@ import type {
  *
  * Order for a `new`-side line thread:
  *   1. resolve the path (file on disk or override, else `git diff -M`
- *      renames, else an untracked file that holds the old content);
+ *      renames, else an untracked file that holds the old content or, for
+ *      anchors of 16+ non-whitespace characters, the anchored lines);
  *   2. blob still present: map lines with `git diff --no-index -U0 --histogram`
  *      (one diff per blob and path, shared by all threads of the call); when
- *      the diff says the anchored lines were deleted, look for them elsewhere
- *      in the file (moved code stays current);
+ *      the diff says the anchored lines were deleted, look for them in the
+ *      lines the diff added (moved code stays current; a match on unchanged
+ *      lines only doesn't count);
  *   3. blob gone: text search against the snapshot, tolerant of whitespace and
  *      quote style, ranked by matching context first and distance second.
  */
@@ -47,6 +49,13 @@ const MAX_UNTRACKED_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8 * 1024;
 /** Untracked files examined per rename search, best candidates first. */
 const MAX_UNTRACKED_CANDIDATES = 200;
+/** Hard ceiling on untracked files probed (size, binary) per rename search. */
+const MAX_UNTRACKED_PROBES = 10 * MAX_UNTRACKED_CANDIDATES;
+/**
+ * Non-whitespace characters an anchor needs before it may match inside another
+ * (untracked) file; shorter ones like `}` or `);` match anything.
+ */
+const MIN_RENAME_ANCHOR_CHARS = 16;
 /** Neutralises user config that changes the diff output we parse. */
 const DIFF_CONFIG = [
   '-c',
@@ -169,7 +178,10 @@ class AnchorRun {
         return { state: 'outdated', path: p, ...range, method: 'diff' };
       }
       if (snap) {
-        const start = rankMatches(cur, cur, snap, a.startLine, false)[0]?.start;
+        const added = addedRanges(hunks);
+        const start = rankMatches(cur, cur, snap, a.startLine, false).find((x) =>
+          touchesRanges(added, x.start, x.start + size - 1),
+        )?.start;
         if (start !== undefined) {
           const endLine = start + size - 1;
           return { state: 'current', path: p, startLine: start, endLine, method: 'moved' };
@@ -245,16 +257,21 @@ class AnchorRun {
     }
 
     const old = await oldText();
-    if (old === undefined && !anchored?.length) return undefined;
+    const searchable = anchored !== undefined && nonWhitespace(anchored) >= MIN_RENAME_ANCHOR_CHARS;
+    if (old === undefined && !searchable) return undefined;
     const base = path.posix.basename(a.path);
     let best: { path: string; score: number } | undefined;
+    let examined = 0;
+    let probed = 0;
     for (const f of await this.untrackedCandidates(a.path)) {
+      if (++probed > MAX_UNTRACKED_PROBES) break;
       if (!(await this.isSearchable(f))) continue;
+      if (++examined > MAX_UNTRACKED_CANDIDATES) break;
       const text = await this.currentText(f);
       if (text === undefined) continue;
       let score = 0;
       if (old !== undefined && text === old) score = 3;
-      else if (anchored?.length && findAll(await this.currentLines(f), anchored).length > 0) {
+      else if (searchable && anchored && findAll(await this.currentLines(f), anchored).length > 0) {
         score = 1;
       }
       if (score === 0) continue;
@@ -303,7 +320,8 @@ class AnchorRun {
 
   /**
    * Untracked files worth reading as a new name for `oldPath`: same basename
-   * first, then same extension, then the rest, capped.
+   * first, then same extension, then the rest. The caller applies the cap
+   * to the files that pass the size and binary filters.
    */
   private async untrackedCandidates(oldPath: string): Promise<string[]> {
     const base = path.posix.basename(oldPath);
@@ -315,7 +333,6 @@ class AnchorRun {
     return (await this.untracked())
       .map((f) => ({ f, r: rank(f) }))
       .sort((x, y) => x.r - y.r)
-      .slice(0, MAX_UNTRACKED_CANDIDATES)
       .map((x) => x.f);
   }
 
@@ -363,7 +380,11 @@ class AnchorRun {
   }
 
   /** Small text file on disk (size cap, no NUL in the first bytes), for rename search. */
-  private async isSearchable(rel: string): Promise<boolean> {
+  private isSearchable(rel: string): Promise<boolean> {
+    return this.once(`searchable:${rel}`, () => this.probe(rel));
+  }
+
+  private async probe(rel: string): Promise<boolean> {
     const override = this.overrides.get(rel);
     if (override !== undefined) return Buffer.byteLength(override) <= MAX_UNTRACKED_BYTES;
     const abs = await this.realFile(rel);
@@ -547,6 +568,18 @@ function parseSnapshot(a: Anchor, text: string | undefined): Snapshot | undefine
     after: lines.slice(cb + k, cb + k + a.contextAfter),
   };
 }
+
+const nonWhitespace = (lines: readonly string[]): number =>
+  lines.reduce((n, l) => n + l.replace(/\s+/g, '').length, 0);
+
+/** New-side line ranges [first, last] (1-based) that the hunks added. */
+function addedRanges(hunks: readonly Hunk[]): Array<[number, number]> {
+  return hunks.filter((h) => h.d > 0).map((h): [number, number] => [h.c, h.c + h.d - 1]);
+}
+
+/** True when any of lines [s, e] was added; a match on unchanged lines only isn't moved code. */
+const touchesRanges = (ranges: ReadonlyArray<[number, number]>, s: number, e: number): boolean =>
+  ranges.some(([from, to]) => s <= to && e >= from);
 
 /** 0-based start indexes where `pat` occurs in `lines`. */
 function findAll(lines: readonly string[], pat: readonly string[]): number[] {
