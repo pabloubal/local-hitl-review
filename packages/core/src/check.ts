@@ -324,7 +324,21 @@ export async function checkTree(root: string): Promise<CheckResult> {
     }
   }
 
-  for (const e of scan.rounds) c.file(e, 'round');
+  const roundClientIds = new Map<string, string>();
+  for (const e of [...scan.rounds].sort((a, b) => cmp(a.name, b.name))) {
+    const f = c.file(e, 'round');
+    const id = f?.data.clientId;
+    if (typeof id !== 'string') continue;
+    const first = roundClientIds.get(id);
+    if (first === undefined) roundClientIds.set(id, e.rel);
+    else {
+      c.error(
+        DiagnosticCode.DuplicateClientId,
+        e.rel,
+        `clientId "${id}" is already used in ${first}`,
+      );
+    }
+  }
 
   for (const e of scan.pushes) {
     const f = c.file(e, 'push');
