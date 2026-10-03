@@ -28,14 +28,21 @@ function str(ctx: CommandContext, key: string): string | undefined {
 }
 
 /** Body from `--body` or `-` (stdin); undefined when neither is given. */
-async function readBody(ctx: CommandContext): Promise<string | undefined> {
+async function readBody(
+  ctx: CommandContext,
+  opts: { emptyIsNone?: boolean } = {},
+): Promise<string | undefined> {
   const flag = str(ctx, 'body');
   const dash = ctx.args.includes('-');
   if (flag !== undefined && dash) {
     throw usageError('give the body with --body or - (stdin), not both', ctx.see);
   }
   const body = dash ? await readStdin(ctx.see) : flag;
-  if (body !== undefined && body.trim() === '') throw usageError('the body is empty', ctx.see);
+  if (body !== undefined && body.trim() === '') {
+    // resolve/reopen: an empty body is the same as giving none.
+    if (opts.emptyIsNone) return undefined;
+    throw usageError('the body is empty', ctx.see);
+  }
   return body;
 }
 
@@ -272,7 +279,7 @@ function statusCommand(status: ThreadStatus): Command {
     async run(ctx) {
       const [idArg] = positionals(ctx, 1);
       if (idArg === undefined) throw usageError('missing <id>', ctx.see, `lhr thread ${verb} <id>`);
-      const body = await readBody(ctx);
+      const body = await readBody(ctx, { emptyIsNone: true });
       const threadId = await resolveThread(ctx, idArg);
       if (body !== undefined) {
         if (ctx.dryRun) return dryRunReport(ctx, threadId, { created: true });

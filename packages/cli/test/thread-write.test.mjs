@@ -246,3 +246,20 @@ test('resolve: --client-id is not offered; --dry-run writes nothing', () => {
   const after = agent(['thread', 'resolve', id], dir);
   assert.equal(after.json.data.changed, true); // the dry run left it open
 });
+
+test('resolve/reopen accept an empty --body as no body; create and reply still reject it', () => {
+  const dir = repoWithFile();
+  const id = createAgentThread(dir);
+  const a = run(['thread', 'resolve', id, '--body', ''], dir);
+  assert.equal(a.status, 0, a.stderr);
+  assert.equal(a.json.data.changed, true);
+  assert.equal(a.json.data.draft, undefined);
+  const again = agent(['thread', 'resolve', id, '--body', '  '], dir);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(again.json.data.changed, false);
+  const re = agent(['thread', 'reopen', id, '--body', ''], dir);
+  assert.equal(re.status, 0, re.stderr);
+  assert.equal(re.json.data.changed, true);
+  assert.equal(agent(['thread', 'reply', id, '--body', ''], dir).status, 2);
+  assert.equal(agent(['thread', 'create', 'src/a.ts:2', '--body', ''], dir).status, 2);
+});
