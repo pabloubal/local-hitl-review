@@ -3,7 +3,12 @@
 // grown until it is unique among the threads in the tree.
 import { CliError } from './errors.js';
 
+// Handles are computed over the mode-visible threads only: callers pass the IDs the
+// current identity can see (drafts included in human mode, excluded in agent mode), so a
+// handle shown in one mode is unique within that mode's view, not across all threads.
 export const MIN_HANDLE = 4;
+/** Most candidates named in an ambiguity message; the rest are counted. */
+export const MAX_CANDIDATES = 10;
 const RANDOM_LEN = 6;
 const HANDLE_RE = /^[a-z2-7]{1,6}$/;
 
@@ -55,9 +60,12 @@ export function resolveThreadId(
     throw new CliError('THREAD_NOT_FOUND', `no thread matches "${input}"`, { see: opts.see });
   }
   const example = (opts.example ?? ((id) => `lhr thread show ${id}`))(matches[0]);
+  const shown = matches.slice(0, MAX_CANDIDATES).join(', ');
+  const more =
+    matches.length > MAX_CANDIDATES ? `, and ${matches.length - MAX_CANDIDATES} more` : '';
   throw new CliError(
     'INVALID_INPUT',
-    `"${input}" matches ${matches.length} threads: ${matches.join(', ')}`,
+    `"${input}" matches ${matches.length} threads: ${shown}${more}`,
     { see: opts.see, example },
   );
 }

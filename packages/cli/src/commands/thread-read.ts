@@ -5,7 +5,9 @@ import type { ThreadFilter, ThreadStatus, ThreadView } from '../../../core/src/i
 import type { Command, CommandContext } from '../commands.js';
 import { usageError } from '../errors.js';
 import { resolveThreadId, shortIds } from '../handles.js';
+import { toRootRelative } from '../paths.js';
 import {
+  listSummaryLine,
   renderList,
   renderShow,
   threadJson,
@@ -83,7 +85,7 @@ export const threadList: Command = {
     const filter: ThreadFilter = { includeDrafts };
     if (status !== 'all') filter.status = status as ThreadStatus;
     if (turn) filter.whoseTurn = turn;
-    if (path !== undefined) filter.path = path;
+    if (path !== undefined) filter.path = toRootRelative(ctx.root!, process.cwd(), path, ctx.see);
     if (round !== undefined) filter.round = round;
     const items = await toItems(ctx, snap.threads(filter), handles);
 
@@ -92,11 +94,10 @@ export const threadList: Command = {
       { threads: items.map(threadJson) },
       {
         diagnostics: [...snap.problems],
-        text: renderList(
-          items,
-          { status, turn, path, round },
-          { color: useColor(process.stdout), width: termWidth() },
-        ),
+        text: renderList(items, listSummaryLine(items.length, { status, turn, path, round }), {
+          color: useColor(process.stdout),
+          width: termWidth(),
+        }),
       },
     );
   },

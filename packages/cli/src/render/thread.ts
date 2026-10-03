@@ -164,7 +164,8 @@ export interface ListSummary {
   round?: string;
 }
 
-function summaryLine(count: number, f: ListSummary): string {
+/** The `thread list` summary line; other lists (the inbox) pass their own string. */
+export function listSummaryLine(count: number, f: ListSummary): string {
   const things = count === 1 ? 'thread' : 'threads';
   const subject = f.status === 'all' ? `${count} ${things}` : `${count} ${f.status} ${things}`;
   const parts = [`status: ${f.status}`];
@@ -175,9 +176,10 @@ function summaryLine(count: number, f: ListSummary): string {
   return `${subject} (${parts.join(', ')}${widen})`;
 }
 
-export function renderList(items: ThreadItem[], filter: ListSummary, o: RenderOptions): string {
+/** Wide table at width >= 80, two lines per thread below; `summary` is the first line. */
+export function renderList(items: ThreadItem[], summary: string, o: RenderOptions): string {
   const { color, width } = o;
-  const out: string[] = [paint(color, summaryLine(items.length, filter), 'dim')];
+  const out: string[] = [paint(color, summary, 'dim')];
   if (items.length === 0) return `${out.join('\n')}\n`;
   out.push('');
   if (width >= 80) {
