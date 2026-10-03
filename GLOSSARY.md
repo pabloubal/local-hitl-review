@@ -10,6 +10,10 @@ Local, human-in-the-loop code review between developers and coding agents: human
 A discussion attached to a specific piece of code, made of one or more messages.
 _Avoid_: Comment (for the whole discussion), feedback item, finding, issue
 
+**Handle**:
+The short form of a thread's ID shown in `lhr` output and accepted as input: the first 4 to 6 characters of the ID's random part, as many as needed to be unique in the tree. Only threads have handles.
+_Avoid_: Short ID (in prose; `shortId` is the JSON field), alias
+
 **Message**:
 A single entry in a thread, written by a human or an agent.
 _Avoid_: Comment, reply (for the first entry), response

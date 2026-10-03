@@ -107,18 +107,19 @@ Every write carries an `Author` (core-api § Writing). The CLI decides it once p
 
 - `--as` beats the environment. `--as agent` without `LHR_SESSION_ID` writes without `session` and prints a warning to stderr.
 - Defaulting from the environment matters: an agent reply recorded as human would silently flip whose turn it is.
-- **Agent mode never exposes drafts** (core `includeDrafts` is never passed). The CLI never passes `includeDrafts: true` in either mode.
+- **Agent mode never exposes drafts** (core `includeDrafts` is never passed), and its writes are always immediate, never drafts.
+- **Human mode writes drafts** for anything that carries a body: `thread create` (`createDraftThread`), `thread reply`, and `thread resolve|reopen` with a body (`addDraftMessage`). The output says the draft was saved and to run `lhr review submit`. `resolve` and `reopen` without a body stay immediate in both modes (core-api § Writing). Human-mode `thread list` and `thread show` pass `includeDrafts: true` and mark drafts; `inbox` is unchanged (submitted threads only).
 - **Agent mode scopes `inbox`** to its session (below) and can't `review submit`.
 - `/clear` in an agent session can leave `LHR_SESSION_ID` stale in a long-lived shell. Accepted: a stale nudge is harmless.
-- `lhr mcp` has its own rule: `name` from the MCP `clientInfo.name`, `session` from `LHR_SESSION_ID`, falling back to `CLAUDE_CODE_SESSION_ID`, and no `session` recorded if neither is set. It always writes as an agent.
+- `lhr mcp` has its own rule: `name` = `LHR_AGENT_NAME` > `clientInfo.name` (trimmed) > `mcp-agent` (see [`mcp.md`](mcp.md) § Identity; there is no `--name` flag on `lhr mcp`), `session` from `LHR_SESSION_ID`, falling back to `CLAUDE_CODE_SESSION_ID`, and no `session` recorded if neither is set. It always writes as an agent.
 
 ## Input conventions
 
-- **Thread IDs.** A full ID or a unique prefix. Output prints the shortest unambiguous prefix beside the full ID **[gap 5]**. An ambiguous prefix is exit `2` (`INVALID_INPUT`) with the candidates listed in the message and a correct example. No match is exit `3` (`THREAD_NOT_FOUND`).
+- **Thread IDs and handles** ([ADR 0007](../adr/0007-thread-id-handles.md)). The ID format is unchanged: `<YYYYMMDDTHHMMSSZ>-<random6>`. Output shows a **handle**: the first N characters of the 6-character random part, with N at least 4, extended until the handle is unique among the threads in the tree (like git's `core.abbrev=auto`). Input accepts a full ID, a prefix of the full ID, or a handle of 4 to 6 characters. A handle that matches several threads is exit `2` (`INVALID_INPUT`) with the candidates listed in the message and a correct example. No match is exit `3` (`THREAD_NOT_FOUND`). A handle and a full-ID prefix can't be confused: the full ID always has `0` at position 2 (the year is `20xx`), and `0` is not in the random alphabet `[a-z2-7]`. Handles are for display and input only; JSON carries the full `id` plus `shortId` (the handle). Only threads have handles: messages are never addressed by ID on the command line, they are addressed within their thread.
 - **Bodies.** `-` (read stdin to EOF) or `--body <text>`, mutually exclusive. Giving both is exit `2`. A required body that is missing is exit `2` with an example. Bodies are markdown, stored as given. Reading `-` when stdin is a terminal is exit `2` instead of blocking **[gap 6]**.
 - **Empty body** is an error on `reply` and `create`. It is allowed on `resolve` and `reopen`.
 - **Severity values:** `critical`, `high`, `medium`, `low`. **Verdict values:** `approve`, `comment`, `request-changes`.
-- **`--client-id <id>`** is a caller-chosen string, unique within a thread. Accepted by `thread create`, `thread reply` and `review submit`. The CLI never generates one.
+- **`--client-id <id>`** is a caller-chosen string, unique within a thread. Accepted by `thread create`, `thread reply` and `review submit`, where the write is immediate. In human mode `thread create` and `thread reply` write drafts, which have no idempotency key, so `--client-id` there is exit `2` (`INVALID_INPUT`): a flag the command can't honour is a usage error, not silently ignored. The CLI never generates one.
 
 ## `lhr inbox`
 
@@ -144,7 +145,7 @@ Lists threads without message bodies.
 | `--path <p>`                   | Exact file path, or a directory prefix (`src/auth` matches `src/auth/x.ts`) |
 | `--round <id>`                 | Threads with a message in that round (full round ID)                        |
 
-Drafts are never included. Maps to core `threads(filter)`. Core `problems` go in `diagnostics` (JSON) or, in text, `N problems skipped; run lhr check` on stderr. Exit `0`.
+In agent mode drafts are never included. In human mode they are included and marked as drafts (JSON: `isDraft: true` on the thread object; text: `draft` in place of the turn). Maps to core `threads(filter)`. Core `problems` go in `diagnostics` (JSON) or, in text, `N problems skipped; run lhr check` on stderr. Exit `0`.
 
 ```
 lhr thread list
@@ -167,7 +168,8 @@ Starts a thread (core `createThread`). Written immediately, never part of a roun
 - **Anchor:** `<path>:<line>` or `<path>:<line>-<end>` for a line thread, bare `<path>` for a file thread. Paths containing `:` use `--path <p> --line <n> [--end-line <n>]` instead (equivalent form). `line` and `end-line` are integers ≥ 1, `end ≥ line`.
 - **Flags:** `--side new|old` (default `new`), `--base-commit <sha>` (required with `--side old`), `--severity <s>`, `--body <text>` or `-`, `--client-id <id>`, `--dry-run`. There is no `--text`: the anchor snapshot is always the file on disk.
 - A relative `<path>` is resolved against the current directory and stored relative to the review root **[gap 8]**. A path outside the review root is a usage error (`INVALID_INPUT`, exit `2`). A path inside the root with no enclosing git repo is `PATH_NOT_IN_REPO` (exit `2`), as in `core-api.md`.
-- **Idempotent** with `--client-id`: if any thread's opening message already has that `clientId`, the existing thread is returned with `created: false` and exit `0`.
+- **Human mode** saves a draft thread (`createDraftThread`) and says so, as for `thread reply`; `--client-id` is rejected. The idempotency rule below is for agent mode.
+- **Idempotent** (agent mode) with `--client-id`: if any thread's opening message already has that `clientId`, the existing thread is returned with `created: false` and exit `0`.
 
 ```
 lhr thread create src/auth/session.ts:42-47 --severity high - <<'EOF'
@@ -181,7 +183,7 @@ lhr thread create README.md --body "Document the new flags" --client-id readme-f
 Adds a message to a thread (core `reply`). The body is required (`-` or `--body`). Flags: `--client-id`, `--severity`, `--dry-run`. There is no `--resolve` flag: use `thread resolve <id> -`.
 
 - A `--client-id` the thread already has returns the existing message with `created: false`, exit `0`.
-- **Human mode** may need a draft (`addDraftMessage`) rather than an immediate write **[gap 9]**.
+- **Human mode** saves a draft (`addDraftMessage`) instead of writing immediately. The output says `draft saved; run lhr review submit to send it` (JSON: `data.draft: true`). `--client-id` is rejected with exit `2` (see Input conventions). `--dry-run` reports the draft that would be saved. **Agent mode** calls core `reply` immediately, with no draft.
 
 ```
 lhr thread reply 20261002T1015 - <<'EOF'
@@ -192,7 +194,7 @@ EOF
 ## `lhr thread resolve <id> [-]` and `lhr thread reopen <id> [-]`
 
 - **Without a body:** core `resolve()` / `reopen()`, an empty-bodied message with `status`. When the thread is already in that state, nothing is written: `created: false`, `changed: false`, exit `0`.
-- **With a body** (`-` or `--body`): core `reply` with `status: "resolved"` (or `"open"`), so the comment and the status change are one message. `--client-id` is not offered on these commands; a body-carrying retry on an already-resolved thread still adds a message **[gap 10]**.
+- **With a body** (`-` or `--body`): in agent mode, core `reply` with `status: "resolved"` (or `"open"`), written immediately, so the comment and the status change are one message. In human mode, core `addDraftMessage` with that `status`: a draft, kept until `lhr review submit`, with the same output as `thread reply`. `--client-id` is not offered on these commands; an agent-mode body-carrying retry on an already-resolved thread still adds a message **[gap 10]**.
 - `--dry-run` reports what would be written.
 
 ```
@@ -260,7 +262,8 @@ Used by `thread list`, `thread show`, `inbox` and writes.
 ```json
 {
   "id": "20261002T101500Z-k3m9qz",
-  "shortId": "20261002T1015",
+  "shortId": "k3m9",
+  "isDraft": false,
   "status": "open",
   "severity": "high",
   "whoseTurn": "agent",
@@ -281,6 +284,7 @@ Used by `thread list`, `thread show`, `inbox` and writes.
 ```
 
 - `location` is a ready-to-print `file:line[-end]` string. `anchor` holds the **re-anchored** values from core `anchors()`, not the saved ones. For an orphaned thread `startLine` and `endLine` are absent. File threads omit the line fields. The text forms for file threads, the `old` side and orphans are in § Human-readable output **[gap 12]**.
+- `shortId` is the handle (4 to 6 characters of the random part, [ADR 0007](../adr/0007-thread-id-handles.md)); `isDraft` is true only for a draft thread, which appears only in human mode.
 - `reviewer` is the core `Author`.
 - `thread show` adds `snapshot` (the fenced snapshot body, line threads only), `savedStartLine` and `savedEndLine` when the anchor is not current **[gap 12]**, and `messages[]` `{ id, createdAt, author, body, round?, status?, severity? }`. It carries `messageCount` as well.
 - `thread list` carries no message bodies.
@@ -319,15 +323,15 @@ Used by `thread list`, `thread show`, `inbox` and writes.
 
 ## Exit codes
 
-| Exit | Meaning                                                         | Codes                                                                                                                                 |
-| ---- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Success, including reads with diagnostics and idempotent no-ops |                                                                                                                                       |
-| 1    | `lhr check` found errors (only)                                 |                                                                                                                                       |
-| 2    | Usage error                                                     | `INVALID_INPUT`, unknown flag or command, missing argument, `NOT_A_REPO` (no `.lhr/`), `PATH_NOT_IN_REPO`, ambiguous thread-ID prefix |
-| 3    | Not found                                                       | `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`                                                                            |
-| 4    | State conflict                                                  | `NOT_A_DRAFT`, `FORMAT_MISSING`, `FORMAT_VERSION`                                                                                     |
-| 5    | Environment failure                                             | `GIT_FAILED`, `IO_FAILED`                                                                                                             |
-| 130  | Interrupted (SIGINT)                                            | Nothing is printed beyond a newline; no partial JSON **[gap 15]**                                                                     |
+| Exit | Meaning                                                         | Codes                                                                                                                                        |
+| ---- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Success, including reads with diagnostics and idempotent no-ops |                                                                                                                                              |
+| 1    | `lhr check` found errors (only)                                 |                                                                                                                                              |
+| 2    | Usage error                                                     | `INVALID_INPUT`, unknown flag or command, missing argument, `NOT_A_REPO` (no `.lhr/`), `PATH_NOT_IN_REPO`, ambiguous thread handle or prefix |
+| 3    | Not found                                                       | `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`                                                                                   |
+| 4    | State conflict                                                  | `NOT_A_DRAFT`, `FORMAT_MISSING`, `FORMAT_VERSION`                                                                                            |
+| 5    | Environment failure                                             | `GIT_FAILED`, `IO_FAILED`                                                                                                                    |
+| 130  | Interrupted (SIGINT)                                            | Nothing is printed beyond a newline; no partial JSON **[gap 15]**                                                                            |
 
 `PATH_NOT_IN_REPO` is a new core code (decision [review root that isn't a git repo](https://github.com/pabloubal/local-hitl-review/issues/105)).
 
@@ -373,20 +377,20 @@ The reference renderer is the throwaway prototype on branch `prototype/thread-ou
 
 ### Thread list
 
-First line (dim): `<N> open threads (status: open; --status all to widen)`, with the filter in words. A blank line, then the table, a blank line, and a dim hint `lhr thread show <id>   (unique prefix is enough)`.
+First line (dim): `<N> open threads (status: open; --status all to widen)`, with the filter in words. A blank line, then the table, a blank line, and a dim hint `lhr thread show <id>   (the handle in the ID column is enough)`.
 
 **Wide (width ≥ 80):** a dim header row, then one row per thread. Columns, left-aligned:
 
 | Column     | Width | Content                                                             |
 | ---------- | ----- | ------------------------------------------------------------------- |
-| `ID`       | 8     | Shortest unambiguous prefix, bold                                   |
+| `ID`       | 4-6   | Handle, bold; as wide as the longest handle in the list (4 to 6)    |
 | `SEV`      | 10    | `critical\|high\|medium\|low`, coloured                             |
-| `TURN`     | 7     | `human` or `agent`, coloured                                        |
+| `TURN`     | 7     | `human` or `agent`, coloured; `draft` (yellow) for a draft thread   |
 | `LOCATION` | rest  | The `location` string; truncated with `…` only if needed            |
 | `ANCHOR`   | 10    | Blank when current, `moved` when outdated, `orphaned` when orphaned |
 | `MSGS`     | 4+    | `messageCount`                                                      |
 
-The `LOCATION` width is `width - 8 - 10 - 7 - 10 - 5`, minimum 20.
+The `LOCATION` width is `width - (W + 2) - 10 - 7 - 10 - 5`, where `W` is the ID column width (4 to 6), minimum 20. Because the column is narrower than the 8 the prototype used, byte-for-byte matching of the prototype applies after its fake IDs are replaced by handles.
 
 **Narrow (width < 80):** two lines per thread: `<id>  <severity>  <turn>  <anchor marker>` (trailing space trimmed), then the location indented two spaces. Locations are never cut mid-path (they are truncated at the end with `…` only if wider than the terminal).
 
@@ -397,7 +401,7 @@ No message bodies and no preview: the text list matches the JSON. Use `thread sh
 ### Thread show
 
 ```
-<short id><rest of id dim>  <status>  <severity>  turn: <turn>  reviewer: <name>
+<full id, dim except the handle in bold>  <status>  <severity>  turn: <turn>  reviewer: <name>
 <location, bold>
 ! <anchor note, wrapped, only when the anchor is not current>
 ────────────────────────────────────────
@@ -408,10 +412,12 @@ No message bodies and no preview: the text list matches the JSON. Use `thread sh
 <author> (<human|agent>)  <timestamp>  <round>, severity: <s>
   <body wrapped at width - 2>
 
-lhr thread reply <short> -   |   lhr thread resolve <short>
+lhr thread reply <handle> -   |   lhr thread resolve <handle>
 ```
 
 - **Anchor note** (`!`-prefixed, coloured by state, wrapped at width - 2): for `outdated`, it states the saved line, the re-anchored line and the method, for example `anchor moved: saved at line 71, now line 88 (text-search).` For `orphaned`, it says the file or lines no longer exist at HEAD and that the snapshot is shown, for example `orphaned: src/old/legacy.ts no longer exists at HEAD. Showing the lines as they were when the comment was made (snapshot at 9ab01de).` The prototype also appends a free sentence (`Lines above were edited since this comment.`); the build need not **[gap 12]**.
+- **Handle in the header:** the handle is the first N characters of the random part of the ID, so it sits inside the full ID and is the bold part.
+- **Drafts (human mode):** a draft thread shows `draft` in place of `<status>`; a draft message gets a `[draft]` tag after its timestamp. Agent mode never shows either.
 - **Snippet:** a line-number gutter with `│`. `>` marks the anchored lines (bold); two lines of context each side (dim). The source is the working tree at the re-anchored lines; for orphaned threads it is the stored snapshot, labelled `snapshot <sha>` (otherwise `working tree`). Long lines are truncated with `…`. File threads have no snippet and no second rule.
 - **Messages:** `<author name> (<kind>)` bold, a dim timestamp, then, when present, the round ID and `severity: <s>` joined by `, `. Body wrapped at width - 2 and indented two spaces, then a blank line. Messages are in name order. Timestamp format `YYYY-MM-DD HH:MM` **[gap 17]**.
 - Closing dim hint with the reply and resolve commands.
@@ -472,16 +478,21 @@ Decisions missing from the closed tickets. Each needs a ruling before or during 
 2. **`--name` in human mode** (and `--as human --name x`): ignore, or `INVALID_INPUT`?
 3. **`data.root` in every JSON response.** Ticket 97 says the root is echoed in `--json` output; the envelope in ticket 100 has no slot for it. Proposed: `data.root`.
 4. **`lhr init` output** text and JSON shape (including how an ancestor `.lhr/` is reported) are not specified; proposals above.
-5. **Short-ID length.** Real IDs share a long timestamp prefix (`20261002T101500Z-k3m9qz`), so "shortest unambiguous prefix" can be 13+ characters, unlike the 6-character IDs faked in the prototype. Needs a minimum length and whether `shortId` is the shortest prefix or fixed.
-6. **`-` with a terminal stdin.** Not stated; proposed exit `2` rather than blocking.
-7. **`inbox` output.** Tickets 99/101 specify `thread list` and `thread show` only; assumed to reuse the list layout and JSON.
-8. **Relative path base for `thread create`.** Cwd-relative converted to root-relative, or always root-relative? Matters when cwd is a repo below a workspace root.
-9. **Human-mode `reply` and `create`.** Core's `reply`/`createThread` are immediate and for agents; humans normally use drafts (`addDraftMessage`, `createDraftThread`) that need a later `review submit`. Ticket 99 maps both commands to the immediate calls without saying what `--as human` does.
-10. **Idempotency of `resolve|reopen` with a body.** No `--client-id` is offered, so a retried "resolve with comment" adds a second message.
-11. **`lhr check` text and JSON shapes** are not specified; proposals above.
-12. **Location and anchor forms not in the JSON decision:** file threads (`README.md (file)`), `old` side (`(old)` suffix) and orphans appear only in the prototype; `savedStartLine`/`savedEndLine` aren't in the thread object of ticket 100 but the "saved at line N" note needs them.
-13. **`data` payload names** for lists and single threads (`threads`, `thread`) are not named in ticket 100 (only that arrays aren't bare).
-14. **`review submit` payload** and its `--dry-run` output are not specified; proposal above.
-15. **SIGINT** handling: only the exit code is decided.
-16. **Error-template wording** for each code is not decided (ticket 100 requires the table; the wording and examples above are proposals).
-17. **Timestamp rendering in `thread show`** (local time or UTC, and whether to show seconds) is not decided; the prototype's fake data uses `YYYY-MM-DD HH:MM`.
+5. **`-` with a terminal stdin.** Not stated; proposed exit `2` rather than blocking.
+6. **`inbox` output.** Tickets 99/101 specify `thread list` and `thread show` only; assumed to reuse the list layout and JSON.
+7. **Relative path base for `thread create`.** Cwd-relative converted to root-relative, or always root-relative? Matters when cwd is a repo below a workspace root.
+8. **Idempotency of `resolve|reopen` with a body.** No `--client-id` is offered, so a retried "resolve with comment" adds a second message (agent mode; in human mode it is a draft, which the reviewer can discard).
+9. **`lhr check` text and JSON shapes** are not specified; proposals above.
+10. **Location and anchor forms not in the JSON decision:** file threads (`README.md (file)`), `old` side (`(old)` suffix) and orphans appear only in the prototype; `savedStartLine`/`savedEndLine` aren't in the thread object of ticket 100 but the "saved at line N" note needs them.
+11. **`data` payload names** for lists and single threads (`threads`, `thread`) are not named in ticket 100 (only that arrays aren't bare).
+12. **`review submit` payload** and its `--dry-run` output are not specified; proposal above.
+13. **SIGINT** handling: only the exit code is decided.
+14. **Error-template wording** for each code is not decided (ticket 100 requires the table; the wording and examples above are proposals).
+15. **Timestamp rendering in `thread show`** (local time or UTC, and whether to show seconds) is not decided; the prototype's fake data uses `YYYY-MM-DD HH:MM`.
+
+### Resolved
+
+Accepted by the maintainer and folded into the sections above:
+
+- **Gap 5, short-ID length.** Handles of 4 to 6 characters of the random part, extended until unique ([ADR 0007](../adr/0007-thread-id-handles.md)). This amends issue 99's "unique prefixes" rule; full IDs and full-ID prefixes are still accepted as input. `shortId` in JSON is the handle.
+- **Gap 9, human-mode `reply` and `create`.** Human mode writes drafts for `thread create`, `thread reply` and `resolve|reopen` with a body; `resolve|reopen` without a body stay immediate. Agent mode writes immediately. `--client-id` is rejected (exit `2`) for drafts. `thread list` and `show` include drafts in human mode. This reconciles the `reply`-with-status wording here with `core-api.md` § Writing.
