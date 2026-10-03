@@ -6,6 +6,7 @@ import { CliError, usageError } from './errors.js';
 import { authorFor, readStdin, type Identity } from './context.js';
 import { init } from './commands/init.js';
 import { reviewSubmit } from './commands/review-submit.js';
+import { THREAD_WRITE_HANDLERS } from './commands/thread-write.js';
 import { ruleWidth, termWidth, useColor } from './term.js';
 import { threadList, threadShow } from './commands/thread-read.js';
 
@@ -119,13 +120,10 @@ export const HANDLERS: Record<string, Command> = {
   inbox: notImplemented('inbox'),
   'thread list': threadList,
   'thread show': threadShow,
-  'thread create': { ...notImplemented('thread create'), writes: true },
-  'thread reply': { ...notImplemented('thread reply'), writes: true },
-  'thread resolve': { ...notImplemented('thread resolve'), writes: true },
-  'thread reopen': { ...notImplemented('thread reopen'), writes: true },
   'review submit': { ...reviewSubmit, writes: true },
   check: notImplemented('check'),
   // Always starts (resolves the root per tool call); no --name (mcp.md § Identity).
   mcp: { ...notImplemented('mcp'), needsRoot: false, rejects: ['name'] },
+  ...THREAD_WRITE_HANDLERS,
   __debug: debug,
 };
