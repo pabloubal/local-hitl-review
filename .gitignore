@@ -7,3 +7,4 @@ e2e-results/
 # copied from the repo root by the release job so vsce can package them
 packages/vscode/README.md
 packages/vscode/CHANGELOG.md
+packages/cli/dist/
