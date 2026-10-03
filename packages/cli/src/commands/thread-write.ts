@@ -1,13 +1,13 @@
 // thread create / reply / resolve / reopen (docs/spec/cli.md § thread create,
 // reply, resolve and reopen). Agent mode writes immediately; human mode writes
 // drafts for anything carrying a body.
-import { realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve as resolvePath, sep } from 'node:path';
 import { LhrError, type Severity, type ThreadStatus } from '../../../core/src/index.js';
 import type { Command, CommandContext } from '../commands.js';
 import { readStdin } from '../context.js';
 import { usageError } from '../errors.js';
-import { resolveThreadId } from '../handles.js';
+import { resolveThreadId, shortIds } from '../handles.js';
+import { toRootRelative } from '../paths.js';
+import { threadJson } from '../render/thread.js';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low'];
 const DRAFT_TEXT = 'draft saved; run lhr review submit to send it\n';
@@ -78,19 +78,17 @@ function intFlag(ctx: CommandContext, key: string): number | undefined {
   return Number(v);
 }
 
-/** cwd-relative (or absolute) path -> root-relative with `/` separators. */
-function toRootRelative(ctx: CommandContext, p: string): string {
-  let cwd = process.cwd();
-  try {
-    cwd = realpathSync(cwd);
-  } catch {
-    // keep the unresolved cwd
-  }
-  const rel = relative(ctx.root!, resolvePath(cwd, p));
-  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw usageError(`${p} is outside the review root ${ctx.root}`, ctx.see);
-  }
-  return rel.split(sep).join('/');
+/** Thread object (`threadJson`) for `id`, read fresh so it reflects the write just made. */
+async function threadObject(ctx: CommandContext, id: string) {
+  const tree = await ctx.tree();
+  const views = (await tree.load()).threads({ includeDrafts: ctx.identity.mode === 'human' });
+  const view = views.find((t) => t.id === id)!;
+  const handles = shortIds(views.map((t) => t.id));
+  const anchor = (await tree.anchors([view])).get(id)!;
+  return {
+    json: threadJson({ view, shortId: handles.get(id)!, anchor }),
+    shortId: handles.get(id)!,
+  };
 }
 
 interface ParsedAnchor {
@@ -126,7 +124,9 @@ function parseAnchor(ctx: CommandContext, arg: string | undefined): ParsedAnchor
   if (endLine !== undefined && startLine !== undefined && endLine < startLine) {
     throw usageError('end line must not be before the start line', ctx.see);
   }
-  return { path: toRootRelative(ctx, file!), startLine, endLine };
+  const rel = toRootRelative(ctx.root!, process.cwd(), file!, ctx.see);
+  if (rel === '') throw usageError(`${file} is the review root, not a file`, ctx.see);
+  return { path: rel, startLine, endLine };
 }
 
 const BODY_OPTIONS = { body: { type: 'string' } } as const;
@@ -166,15 +166,7 @@ const create: Command = {
     const sev = severity(ctx);
     const clientId = str(ctx, 'client-id');
     const human = ctx.identity.mode === 'human';
-    if (ctx.dryRun) {
-      ctx.succeed(
-        { dryRun: true, created: true, ...(human ? { draft: true } : {}) },
-        {
-          text: `dry run: would ${human ? 'save a draft thread' : 'create a thread'} on ${anchor.path}\n`,
-        },
-      );
-      return;
-    }
+    if (ctx.dryRun) return createDryRun(ctx, anchor, side, sev, clientId);
     const tree = await ctx.tree();
     const author = await ctx.author();
     const input = {
@@ -192,19 +184,84 @@ const create: Command = {
     };
     if (human) {
       const r = await tree.createDraftThread(input);
+      const t = await threadObject(ctx, r.threadId);
       ctx.succeed(
-        { thread: { id: r.threadId }, message: { id: r.messageId }, created: true, draft: true },
-        { text: `${DRAFT_TEXT}thread ${r.threadId}\n` },
+        { thread: t.json, message: { id: r.messageId }, created: true, draft: true },
+        { text: `${DRAFT_TEXT}thread ${t.shortId}\n` },
       );
       return;
     }
     const r = await tree.createThread({ ...input, ...(clientId ? { clientId } : {}) });
+    const t = await threadObject(ctx, r.threadId);
     ctx.succeed(
-      { thread: { id: r.threadId }, message: { id: r.messageId }, created: r.created },
-      { text: `${r.created ? 'created' : 'exists'} thread ${r.threadId}\n` },
+      { thread: t.json, message: { id: r.messageId }, created: r.created },
+      { text: `${r.created ? 'created' : 'exists'} thread ${t.shortId}\n` },
     );
   },
 };
+
+/**
+ * Dry run: validated input, nothing written. The thread has the usual shape with the IDs
+ * (and the anchor state, which needs a capture) absent. An agent `--client-id` that a
+ * thread already carries reports that thread with `created: false`, as the real run would.
+ */
+async function createDryRun(
+  ctx: CommandContext,
+  anchor: ParsedAnchor,
+  side: 'new' | 'old',
+  sev: Severity | undefined,
+  clientId: string | undefined,
+): Promise<void> {
+  const human = ctx.identity.mode === 'human';
+  if (!human && clientId !== undefined) {
+    const snapshot = await (await ctx.tree()).load();
+    const hit = snapshot.threads().find((t) => t.messages[0]?.clientId === clientId);
+    if (hit) {
+      const t = await threadObject(ctx, hit.id);
+      ctx.succeed(
+        { thread: t.json, dryRun: true, created: false },
+        { text: `dry run: thread ${t.shortId} already exists for client id ${clientId}\n` },
+      );
+      return;
+    }
+  }
+  const author = await ctx.author();
+  const kind = anchor.startLine === undefined ? 'file' : 'line';
+  const range =
+    anchor.endLine !== undefined && anchor.endLine > anchor.startLine!
+      ? `${anchor.startLine}-${anchor.endLine}`
+      : `${anchor.startLine}`;
+  const location =
+    kind === 'file'
+      ? `${anchor.path} (file)`
+      : `${anchor.path}:${range}${side === 'old' ? ' (old)' : ''}`;
+  ctx.succeed(
+    {
+      thread: {
+        isDraft: human,
+        status: 'open',
+        severity: sev ?? 'medium',
+        whoseTurn: 'human',
+        reviewer: author,
+        location,
+        anchor: {
+          path: anchor.path,
+          kind,
+          side,
+          ...(anchor.startLine !== undefined ? { startLine: anchor.startLine } : {}),
+          ...(anchor.endLine !== undefined ? { endLine: anchor.endLine } : {}),
+        },
+        messageCount: 1,
+      },
+      dryRun: true,
+      created: true,
+      ...(human ? { draft: true } : {}),
+    },
+    {
+      text: `dry run: would ${human ? 'save a draft thread' : 'create a thread'} on ${location}\n`,
+    },
+  );
+}
 
 /** Shared by reply (no status) and resolve/reopen with a body. */
 async function writeMessage(
@@ -220,34 +277,40 @@ async function writeMessage(
   const extra = { ...(status ? { status } : {}), ...(sev ? { severity: sev } : {}) };
   if (ctx.identity.mode === 'human') {
     const r = await tree.addDraftMessage(threadId, { body, author, ...extra });
+    const t = await threadObject(ctx, threadId);
     ctx.succeed(
-      { thread: { id: threadId }, message: { id: r.messageId }, created: true, draft: true },
+      { thread: t.json, message: { id: r.messageId }, created: true, draft: true },
       { text: `${DRAFT_TEXT}message ${r.messageId}\n` },
     );
     return;
   }
+  const before = status ? (await tree.load()).thread(threadId)?.status : undefined;
   const r = await tree.reply(threadId, {
     body,
     author,
     ...extra,
     ...(clientId ? { clientId } : {}),
   });
+  const t = await threadObject(ctx, threadId);
   ctx.succeed(
     {
-      thread: { id: threadId },
+      thread: t.json,
       message: { id: r.messageId },
       created: r.created,
-      ...(status ? { changed: r.created } : {}),
+      // `changed` is about the status: a message that re-states the current status is
+      // created but changes nothing.
+      ...(status ? { changed: r.created && before !== status } : {}),
     },
-    { text: `${r.created ? 'added' : 'exists'} message ${r.messageId}\n` },
+    { text: `${r.created ? 'added' : 'exists'} message ${r.messageId} on thread ${t.shortId}\n` },
   );
 }
 
-function dryRunReport(ctx: CommandContext, threadId: string, extra: Record<string, unknown>) {
+async function dryRunReport(ctx: CommandContext, threadId: string, extra: Record<string, unknown>) {
   const human = ctx.identity.mode === 'human';
+  const t = await threadObject(ctx, threadId);
   ctx.succeed(
-    { thread: { id: threadId }, dryRun: true, ...(human ? { draft: true } : {}), ...extra },
-    { text: `dry run: nothing written (thread ${threadId})\n` },
+    { thread: t.json, dryRun: true, ...(human ? { draft: true } : {}), ...extra },
+    { text: `dry run: nothing written (thread ${t.shortId})\n` },
   );
 }
 
@@ -272,6 +335,15 @@ const reply: Command = {
   },
 };
 
+async function dryRunBody(ctx: CommandContext, threadId: string, status: ThreadStatus) {
+  const t = (await (await ctx.tree()).load()).thread(threadId);
+  const changed = ctx.identity.mode === 'human' ? undefined : t?.status !== status;
+  return dryRunReport(ctx, threadId, {
+    created: true,
+    ...(changed !== undefined ? { changed } : {}),
+  });
+}
+
 function statusCommand(status: ThreadStatus): Command {
   const verb = status === 'resolved' ? 'resolve' : 'reopen';
   return {
@@ -282,7 +354,7 @@ function statusCommand(status: ThreadStatus): Command {
       const body = await readBody(ctx, { emptyIsNone: true });
       const threadId = await resolveThread(ctx, idArg);
       if (body !== undefined) {
-        if (ctx.dryRun) return dryRunReport(ctx, threadId, { created: true });
+        if (ctx.dryRun) return dryRunBody(ctx, threadId, status);
         await writeMessage(ctx, threadId, body, status);
         return;
       }
@@ -298,17 +370,18 @@ function statusCommand(status: ThreadStatus): Command {
         status === 'resolved'
           ? await tree.resolve(threadId, author)
           : await tree.reopen(threadId, author);
+      const t = await threadObject(ctx, threadId);
       ctx.succeed(
         {
-          thread: { id: threadId },
+          thread: t.json,
           ...(r.messageId ? { message: { id: r.messageId } } : {}),
           created: r.changed,
           changed: r.changed,
         },
         {
           text: r.changed
-            ? `${status} thread ${threadId}\n`
-            : `thread ${threadId} already ${status}\n`,
+            ? `${status} thread ${t.shortId}\n`
+            : `thread ${t.shortId} already ${status}\n`,
         },
       );
     },

@@ -17,6 +17,10 @@ function repoWithFile() {
   return dir;
 }
 
+// Message IDs have one-second resolution and same-second messages of one kind sort by a random
+// suffix, so tests that depend on the order of two same-kind writes wait a second between them.
+const tick = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
+
 const run = (args, dir, opts = {}) => {
   const r = lhr([...args, '--json'], { cwd: dir, ...opts });
   return { ...r, json: r.stdout ? JSON.parse(r.stdout) : undefined };
@@ -114,7 +118,7 @@ test('create: --dry-run writes nothing, dryRun:true, no ids', () => {
     const r = go(['thread', 'create', 'src/a.ts:2', '--body', 'x', '--dry-run'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json.data.dryRun, true);
-    assert.equal(r.json.data.thread, undefined);
+    assert.equal(r.json.data.thread.id, undefined);
   }
   assert.equal(count(dir), 0);
   assert.equal(draftCount(dir), 0);
@@ -262,4 +266,104 @@ test('resolve/reopen accept an empty --body as no body; create and reply still r
   assert.equal(re.json.data.changed, true);
   assert.equal(agent(['thread', 'reply', id, '--body', ''], dir).status, 2);
   assert.equal(agent(['thread', 'create', 'src/a.ts:2', '--body', ''], dir).status, 2);
+});
+
+// ---- output shape
+
+test('create/reply/resolve: data.thread is the full Thread object; text prints handles', () => {
+  const dir = repoWithFile();
+  const c = agent(['thread', 'create', 'src/a.ts:2', '--body', 'first', '--severity', 'high'], dir);
+  const t = c.json.data.thread;
+  assert.match(t.id, /^\d{8}T\d{6}Z-[a-z2-7]{6}$/);
+  assert.equal(t.shortId, t.id.slice(-6, -2));
+  assert.equal(t.isDraft, false);
+  assert.equal(t.status, 'open');
+  assert.equal(t.severity, 'high');
+  assert.equal(t.whoseTurn, 'human');
+  assert.equal(t.location, 'src/a.ts:2');
+  assert.equal(t.anchor.state, 'current');
+  assert.equal(t.messageCount, 1);
+  tick();
+  const r = agent(['thread', 'reply', t.shortId, '--body', 'two'], dir);
+  assert.equal(r.json.data.thread.messageCount, 2);
+  tick();
+  assert.equal(r.json.data.thread.id, t.id);
+  const rs = agent(['thread', 'resolve', t.shortId], dir);
+  assert.equal(rs.json.data.thread.status, 'resolved');
+  tick();
+  const text = lhr(['thread', 'reply', t.shortId, '--body', 'three'], {
+    cwd: dir,
+    env: AGENT,
+  }).stdout;
+  assert.ok(text.includes(t.shortId));
+  assert.ok(!text.includes(t.id), text);
+  const d = run(['thread', 'create', 'src/a.ts:3', '--body', 'mine'], dir);
+  assert.equal(d.json.data.thread.isDraft, true);
+  assert.ok(d.json.data.thread.shortId);
+});
+
+test('create from a subdirectory reports the root-relative location', () => {
+  const dir = repoWithFile();
+  const r = agent(['thread', 'create', 'a.ts:2', '--body', 'x'], join(dir, 'src'));
+  assert.equal(r.json.data.thread.location, 'src/a.ts:2');
+});
+
+// ---- changed rule
+
+test('resolve/reopen with a body: changed reflects the status, created the message', () => {
+  const dir = repoWithFile();
+  const id = createAgentThread(dir);
+  tick();
+  const a = agent(['thread', 'resolve', id, '--body', 'done'], dir);
+  assert.equal(a.json.data.created, true);
+  assert.equal(a.json.data.changed, true);
+  tick();
+  const b = agent(['thread', 'resolve', id, '--body', 'done again'], dir);
+  assert.equal(b.json.data.created, true);
+  assert.equal(b.json.data.changed, false);
+  assert.ok(b.json.data.message.id);
+  tick();
+  const c = agent(['thread', 'reopen', id, '--body', 'no'], dir);
+  assert.equal(c.json.data.changed, true);
+});
+
+// ---- dry-run shape
+
+test('create --dry-run: thread shape without ids; existing --client-id reports created:false', () => {
+  const dir = repoWithFile();
+  const r = agent(['thread', 'create', 'src/a.ts:2-3', '--body', 'x', '--dry-run'], dir);
+  const t = r.json.data.thread;
+  assert.equal(r.json.data.created, true);
+  assert.equal(t.id, undefined);
+  assert.equal(t.shortId, undefined);
+  assert.equal(r.json.data.message, undefined);
+  assert.equal(t.status, 'open');
+  assert.equal(t.whoseTurn, 'human');
+  assert.equal(t.location, 'src/a.ts:2-3');
+  assert.equal(t.isDraft, false);
+  assert.equal(t.messageCount, 1);
+  const hd = run(['thread', 'create', 'src/a.ts:2', '--body', 'x', '--dry-run'], dir);
+  assert.equal(hd.json.data.thread.isDraft, true);
+  const made = agent(['thread', 'create', 'src/a.ts', '--body', 'x', '--client-id', 'k9'], dir);
+  const again = agent(
+    ['thread', 'create', 'src/a.ts', '--body', 'x', '--client-id', 'k9', '--dry-run'],
+    dir,
+  );
+  assert.equal(again.json.data.created, false);
+  assert.equal(again.json.data.dryRun, true);
+  assert.equal(again.json.data.thread.id, made.json.data.thread.id);
+  assert.equal(count(dir), 1);
+});
+
+test('human mode: --client-id rejection explains why', () => {
+  const dir = repoWithFile();
+  const r = run(['thread', 'create', 'src/a.ts:2', '--body', 'm', '--client-id', 'k'], dir);
+  assert.equal(r.status, 2);
+  assert.match(r.json.error.message, /--client-id applies to immediate agent writes/);
+  assert.match(r.json.error.message, /drafts, which have no idempotency key/);
+});
+
+test('--help for thread create states the dry-run limits', () => {
+  const r = lhr(['thread', 'create', '--help']);
+  assert.match(r.stdout, /dry run validates input and thread existence, not anchors/i);
 });
