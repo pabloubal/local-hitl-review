@@ -1,4 +1,4 @@
-import { realpath, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { LhrError } from './errors.js';
 import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
@@ -186,12 +186,10 @@ export async function openTree(host: Host): Promise<LhrTree> {
   const gitPath = host.gitPath ?? 'git';
   const { root } = host;
 
-  let real: string;
   try {
     if (!(await stat(root)).isDirectory()) {
       throw new LhrError('NOT_A_REPO', `${root} is not a directory`);
     }
-    real = await realpath(root);
   } catch (err) {
     if (err instanceof LhrError) throw err;
     const code = (err as NodeJS.ErrnoException).code;
