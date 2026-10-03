@@ -1,7 +1,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build as esbuild } from 'esbuild';
@@ -55,11 +55,12 @@ test('submit with drafts writes one round and promotes the drafts', async () => 
   assert.equal(r.status, 0, r.stderr);
   const d = json(r).data;
   assert.equal(d.created, true);
-  assert.deepEqual(d.threadIds, [threadId]);
-  assert.deepEqual(d.messageIds, [messageId]);
-  assert.equal(d.verdict, 'request-changes');
+  assert.deepEqual(d.round.threadIds, [threadId]);
+  assert.deepEqual(d.round.messageIds, [messageId]);
+  assert.equal(d.round.verdict, 'request-changes');
   assert.equal(roundFiles(repo).length, 1);
-  assert.equal(`${d.roundId}.md`, roundFiles(repo)[0]);
+  assert.equal(`${d.round.id}.md`, roundFiles(repo)[0]);
+  assert.equal(d.root, realpathSync(repo));
 });
 
 test('submit text output names the round and counts', async () => {
@@ -97,8 +98,8 @@ test('zero drafts is a valid bare verdict', () => {
   assert.equal(r.status, 0, r.stderr);
   const d = json(r).data;
   assert.equal(d.created, true);
-  assert.deepEqual(d.threadIds, []);
-  assert.deepEqual(d.messageIds, []);
+  assert.deepEqual(d.round.threadIds, []);
+  assert.deepEqual(d.round.messageIds, []);
   assert.equal(roundFiles(repo).length, 1);
 });
 
@@ -122,7 +123,7 @@ test('retry with the same --client-id returns created:false and writes no second
   const d = json(second).data;
   assert.equal(first.created, true);
   assert.equal(d.created, false);
-  assert.equal(d.roundId, first.roundId);
+  assert.equal(d.round.id, first.round.id);
   assert.equal(roundFiles(repo).length, 1);
 });
 
@@ -142,9 +143,11 @@ test('--dry-run lists drafts and verdict and writes nothing', async () => {
   assert.equal(r.status, 0, r.stderr);
   const d = json(r).data;
   assert.equal(d.dryRun, true);
-  assert.equal(d.verdict, 'approve');
-  assert.deepEqual(d.threadIds, [threadId]);
-  assert.deepEqual(d.messageIds, [messageId]);
+  assert.equal(d.round.verdict, 'approve');
+  assert.equal(d.round.id, undefined);
+  assert.equal(d.created, true);
+  assert.deepEqual(d.round.threadIds, [threadId]);
+  assert.deepEqual(d.round.messageIds, [messageId]);
   assert.equal(roundFiles(repo).length, 0);
   assert.equal(existsSync(join(repo, '.lhr', 'drafts', '.submitting')), false);
   const text = lhr(['review', 'submit', '--verdict', 'approve', '--dry-run'], { cwd: repo });
@@ -176,4 +179,110 @@ test('--as human bypasses the refusal inside an agent shell', () => {
   });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(roundFiles(repo).length, 1);
+});
+
+// Submits one draft thread, then leaves a draft reply on it plus a new draft thread.
+async function repoWithReplyOnSubmitted() {
+  const { repo, threadId } = await repoWithDrafts();
+  assert.equal(lhr(['review', 'submit', '--verdict', 'comment'], { cwd: repo }).status, 0);
+  // IDs sort by second: keep the reply after the thread's first message.
+  await new Promise((done) => setTimeout(done, 1100));
+  const tree = await core.openTree({ root: repo });
+  const author = await tree.humanAuthor();
+  const reply = await tree.addDraftMessage(threadId, { body: 'reply', author });
+  const fresh = await tree.createDraftThread({
+    anchor: { path: 'a.ts', kind: 'line', startLine: 2 },
+    body: 'second',
+    author,
+  });
+  await tree.dispose();
+  return { repo, replyId: reply.messageId, freshThread: fresh.threadId, freshMsg: fresh.messageId };
+}
+
+test('--dry-run threadIds match a real submit (a reply on a submitted thread is not listed)', async () => {
+  const { repo, replyId, freshThread, freshMsg } = await repoWithReplyOnSubmitted();
+  const dry = json(
+    lhr(['review', 'submit', '--verdict', 'comment', '--dry-run', '--json'], { cwd: repo }),
+  ).data;
+  const real = json(
+    lhr(['review', 'submit', '--verdict', 'comment', '--json'], { cwd: repo }),
+  ).data;
+  assert.deepEqual(dry.round.threadIds, [freshThread]);
+  assert.deepEqual(dry.round.threadIds, real.round.threadIds);
+  assert.deepEqual(dry.round.messageIds, real.round.messageIds);
+  assert.deepEqual([...real.round.messageIds].sort(), [freshMsg, replyId].sort());
+});
+
+test('a --client-id retry reports the stored verdict, not the flag', async () => {
+  const { repo } = await repoWithDrafts();
+  const base = ['review', 'submit', '--client-id', 'pr-1', '--json'];
+  lhr([...base, '--verdict', 'approve'], { cwd: repo });
+  const d = json(lhr([...base, '--verdict', 'request-changes'], { cwd: repo })).data;
+  assert.equal(d.created, false);
+  assert.equal(d.round.verdict, 'approve');
+  const text = lhr(['review', 'submit', '--client-id', 'pr-1', '--verdict', 'comment'], {
+    cwd: repo,
+  });
+  assert.match(text.stdout, /already submitted.*\(approve\)/);
+});
+
+test('--dry-run with an existing --client-id reports created:false and the stored round', async () => {
+  const { repo } = await repoWithDrafts();
+  const first = json(
+    lhr(['review', 'submit', '--verdict', 'approve', '--client-id', 'pr-1', '--json'], {
+      cwd: repo,
+    }),
+  ).data;
+  const r = lhr(
+    ['review', 'submit', '--verdict', 'comment', '--client-id', 'pr-1', '--dry-run', '--json'],
+    { cwd: repo },
+  );
+  const d = json(r).data;
+  assert.equal(d.dryRun, true);
+  assert.equal(d.created, false);
+  assert.equal(d.round.id, first.round.id);
+  assert.equal(d.round.verdict, 'approve');
+  assert.equal(roundFiles(repo).length, 1);
+  const text = lhr(
+    ['review', 'submit', '--verdict', 'comment', '--client-id', 'pr-1', '--dry-run'],
+    { cwd: repo },
+  );
+  assert.match(text.stdout, /already submitted/);
+});
+
+test('an invalid draft is reported as skipped in text, JSON and dry-run', async () => {
+  const { repo } = await repoWithDrafts();
+  const tree = await core.openTree({ root: repo });
+  const author = await tree.humanAuthor();
+  const bad = await tree.createDraftThread({
+    anchor: { path: 'a.ts', kind: 'line', startLine: 3 },
+    body: 'BODYMARK',
+    author,
+  });
+  await tree.dispose();
+  // Emptying the body on disk (as a hand edit would) makes the draft invalid.
+  const file = join(repo, '.lhr', 'drafts', 'threads', bad.threadId, `${bad.messageId}.md`);
+  writeFileSync(file, readFileSync(file, 'utf8').replace('BODYMARK', ''));
+  const dry = lhr(['review', 'submit', '--verdict', 'comment', '--dry-run', '--json'], {
+    cwd: repo,
+  });
+  assert.deepEqual(json(dry).data.skippedDraftIds, [bad.messageId]);
+  const dryText = lhr(['review', 'submit', '--verdict', 'comment', '--dry-run'], { cwd: repo });
+  assert.match(dryText.stdout, /would skip 1 invalid draft/);
+  assert.match(dryText.stdout, new RegExp(bad.messageId));
+  const real = lhr(['review', 'submit', '--verdict', 'comment'], { cwd: repo });
+  assert.match(real.stdout, /skipped 1 invalid draft/);
+  assert.match(real.stdout, new RegExp(bad.messageId));
+});
+
+test('help lists --summary and a --summary submit works', async () => {
+  const h = lhr(['review', 'submit', '--help']);
+  assert.match(h.stdout, /--summary <text>/);
+  const { repo } = await repoWithDrafts();
+  const r = lhr(['review', 'submit', '--verdict', 'comment', '--summary', 'sum text'], {
+    cwd: repo,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const file = join(repo, '.lhr', 'rounds', roundFiles(repo)[0]);
+  assert.match(readFileSync(file, 'utf8'), /sum text/);
 });
