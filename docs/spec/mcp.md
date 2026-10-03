@@ -48,9 +48,10 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 
 | Field            | Source                                                                                          |
 | ---------------- | ----------------------------------------------------------------------------------------------- |
-| `author.name`    | `clientInfo.name` from `initialize` (the agent product, for example `claude-code`).             |
+| `author.name`    | `LHR_AGENT_NAME`, else `clientInfo.name` from `initialize` (trimmed), else `mcp-agent`.         |
 | `author.session` | `LHR_SESSION_ID`, else `CLAUDE_CODE_SESSION_ID`, read from the server's environment at startup. |
 
+- **Name precedence: `LHR_AGENT_NAME` > `clientInfo.name` > `mcp-agent`.** `clientInfo.name` is the agent product (for example `claude-code`). An empty or whitespace-only value counts as absent, and a write is never rejected over the name. **Amendment to issue 98**, which gave only `clientInfo.name`: `LHR_AGENT_NAME` now also applies to `lhr mcp`, and `mcp-agent` is the fallback. There is no `--name` flag on `lhr mcp`.
 - MCP gives a stdio server no session ID. Claude Code sets `CLAUDE_CODE_SESSION_ID` in the server subprocess; it equals the `session_id` the `SessionStart` hook sees, so it matches the ADR 0001 registry key. `LHR_SESSION_ID` is the variable the CLI uses and takes precedence when both are set.
 - If neither variable is set, the write is recorded as an agent **with no `session`**. The server never fabricates one (no PID, no `Mcp-Session-Id`, no random UUID). Nudge routing then falls to ADR 0001 rule 2.
 - The environment is read once, so after `/clear` in a long-lived process the session ID can be stale. This is accepted: a stale nudge is harmless.
@@ -59,7 +60,7 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 ## Common behaviour
 
 - **Names** are `snake_case`; **arguments** are `camelCase`, matching the CLI's JSON.
-- **`id`** accepts a full thread ID or a unique prefix. An ambiguous prefix is an `INVALID_INPUT` error whose message lists the candidates.
+- **`id`** accepts a full thread ID, a prefix of it, or a handle (4 to 6 characters of the random part; [ADR 0007](../adr/0007-thread-id-handles.md), rules in `cli.md` § Input conventions). An ambiguous handle or prefix is an `INVALID_INPUT` error whose message lists the candidates. Thread objects carry `shortId` (the handle) beside the full `id`.
 - **Input validation** is zod, `.strict()` objects: unknown arguments are rejected. A validation failure is returned as an `INVALID_INPUT` tool error (not a JSON-RPC error). The implementation ticket verifies what the SDK does by default and wraps it if needed.
 - **`severity`** is `critical | high | medium | low`. **`side`** is `new | old`.
 - **Bodies** are markdown strings, passed directly as the `body` argument (the CLI's stdin form has no meaning here). Empty `body` is `INVALID_INPUT` wherever `body` is required.
@@ -119,7 +120,7 @@ Open, submitted threads where it is the agent's turn, newest information first a
 
 ### `thread_show`
 
-- **Description guidance:** "Show one thread: every message, the code snapshot it was written against, and where that code is now (location and anchor state: current, outdated or orphaned). `id` may be a unique prefix."
+- **Description guidance:** "Show one thread: every message, the code snapshot it was written against, and where that code is now (location and anchor state: current, outdated or orphaned). `id` may be a full ID, a prefix, or the short handle shown by `thread_list`."
 - **Input:** `z.object({ id: z.string().min(1) }).strict()`.
 - **Output `data`:** `{ root, thread }`, one thread object with `messages[] { id, createdAt, author, body, round?, status?, severity? }` and `snapshot`.
 
@@ -232,7 +233,6 @@ Packaging and plugin wiring belong to the release and plugin tickets.
 
 Each needs a decision or a doc fix.
 
-3. **Agent name fallback.** Issue 98 gives the MCP name only as `clientInfo.name`. Not defined: the name when the client sends an empty `clientInfo.name`, and whether `LHR_AGENT_NAME` or a `--name` flag applies to `lhr mcp` (the CLI has both).
 4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one.
 5. **Schema failures.** Issue 102 says the implementation must check what the SDK returns for invalid arguments and wrap it; unverified. Also unverified: whether the SDK skips `outputSchema` validation for `isError` results, and whether an error result should also carry `structuredContent` (this spec: text content only).
 6. **`/clear` staleness** of the session variable in a long-lived process is accepted but untested (issues 95, 98). `CLAUDE_CODE_SESSION_ID` is documented only in a changelog (anthropics/claude-code#63305).
@@ -243,3 +243,5 @@ Each needs a decision or a doc fix.
 ### Resolved
 
 Covered by `cli.md`, `core-api.md` and ADR 0002 now on `main`: identity wording in `core-api.md` (issue 98), `NOT_A_REPO` without an `example`, the no-op write payload (`message` absent, `created: false`, `changed: false`), list `data` shape with `root`, `PATH_NOT_IN_REPO` and non-git roots (issue 105), and ADR 0002's command list.
+
+Accepted by the maintainer: **gap 3, agent name fallback.** The name is `LHR_AGENT_NAME` > `clientInfo.name` (trimmed) > `mcp-agent`; a write is never rejected over the name; there is no `--name` flag on `lhr mcp`. This amends issue 98 (see § Identity).

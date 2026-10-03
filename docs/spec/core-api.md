@@ -58,7 +58,7 @@ interface ThreadFilter {
 ```
 
 - `load()` reads the whole tree into an immutable snapshot and computes every derived value except anchor state. Filtering happens in memory. The core doesn't watch files: the extension reloads on its `FileSystemWatcher`, and the MCP server reloads on each tool call.
-- **Drafts are hidden unless asked for.** Only the extension passes `includeDrafts: true`. The MCP server and the CLI's agent mode never expose it. This is the single place that enforces "drafts stay hidden from agents until the round is submitted".
+- **Drafts are hidden unless asked for.** The extension and the CLI's human mode pass `includeDrafts: true`. The MCP server and the CLI's agent mode never expose it. This is the single place that enforces "drafts stay hidden from agents until the round is submitted".
 
 ```ts
 interface ThreadView {
