@@ -110,6 +110,38 @@ test('init: --json envelope carries root and created files', () => {
   assert.equal(j.data.ancestor, undefined);
 });
 
+test('init: a .lhr/ without format gets the format file created', () => {
+  const repo = mkRepo({ lhr: false });
+  mkdirSync(join(repo, '.lhr', 'drafts'), { recursive: true });
+  const r = lhr(['init', '--json'], { cwd: repo });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).data.created, ['.lhr/format', '.lhr/.gitignore']);
+  assert.equal(read(join(repo, '.lhr', 'format')), '2\n');
+  assert.equal(read(join(repo, '.lhr', '.gitignore')), 'drafts/\n');
+  assert.match(lhr(['init'], { cwd: repo }).stdout, /nothing to do/);
+});
+
+test('init: text for a .lhr/ missing only format says updated', () => {
+  const repo = mkRepo({ lhr: false });
+  mkdirSync(join(repo, '.lhr'));
+  writeFileSync(join(repo, '.lhr', '.gitignore'), 'drafts/\n');
+  const r = lhr(['init'], { cwd: repo });
+  assert.equal(r.stdout, `updated .lhr/ in ${repo} (added .lhr/format)\n`);
+});
+
+test('init: --dry-run on a partially set-up tree says would update and writes nothing', () => {
+  const repo = mkRepo(); // format present, no .gitignore
+  const r = lhr(['init', '--dry-run'], { cwd: repo });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, `would update .lhr/ in ${repo}\n  .lhr/.gitignore\n`);
+  assert.ok(!existsSync(join(repo, '.lhr', '.gitignore')));
+  const bare = mkRepo({ lhr: false });
+  mkdirSync(join(bare, '.lhr'));
+  const r2 = lhr(['init', '--dry-run', '--json'], { cwd: bare });
+  assert.deepEqual(JSON.parse(r2.stdout).data.created, ['.lhr/format', '.lhr/.gitignore']);
+  assert.ok(!existsSync(join(bare, '.lhr', 'format')));
+});
+
 test('init: --repo sets the default directory', () => {
   const dir = tmpDir();
   const r = lhr(['init', '--repo', dir], { cwd: tmpDir() });

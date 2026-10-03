@@ -2,7 +2,7 @@
 // creates `.lhr/`. It never walks up and never prompts.
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { checkFormat } from '../../../core/src/format.js';
+import { checkFormat } from '../../../core/src/index.js';
 import type { Command } from '../commands.js';
 import { CliError, usageError } from '../errors.js';
 import { discoverRoot } from '../context.js';
@@ -39,8 +39,10 @@ export const init: Command = {
 
     const lhrDir = join(target, '.lhr');
     const dirExists = await exists(lhrDir);
-    // An existing `.lhr/` must hold a valid format; init never overwrites a bad one.
-    if (dirExists) {
+    // A missing format file is created; a present but invalid one is never rewritten.
+    const formatPath = join(target, FORMAT_FILE);
+    const formatExists = dirExists && (await exists(formatPath));
+    if (formatExists) {
       try {
         await checkFormat(target);
       } catch (err) {
@@ -62,7 +64,7 @@ export const init: Command = {
     const ignored = ignoreText?.split(/\r?\n/).some((l) => l.trim() === IGNORE_LINE) ?? false;
 
     const created: string[] = [];
-    if (!dirExists) created.push(FORMAT_FILE);
+    if (!formatExists) created.push(FORMAT_FILE);
     if (!ignored) created.push(GITIGNORE_FILE);
 
     let ancestor: string | undefined;
@@ -74,9 +76,9 @@ export const init: Command = {
     }
 
     if (!ctx.dryRun) {
-      if (!dirExists) {
+      if (!formatExists) {
         await mkdir(lhrDir, { recursive: true });
-        await writeFile(join(target, FORMAT_FILE), '2\n');
+        await writeFile(formatPath, '2\n');
       }
       if (!ignored) {
         const prefix =
@@ -89,7 +91,7 @@ export const init: Command = {
     if (created.length === 0) {
       text = `.lhr/ already exists in ${target} (nothing to do)\n`;
     } else if (ctx.dryRun) {
-      text = `would create .lhr/ in ${target}\n${created.map((f) => `  ${f}\n`).join('')}`;
+      text = `would ${dirExists ? 'update' : 'create'} .lhr/ in ${target}\n${created.map((f) => `  ${f}\n`).join('')}`;
     } else if (dirExists) {
       text = `updated .lhr/ in ${target} (added ${created.join(', ')})\n`;
     } else {
