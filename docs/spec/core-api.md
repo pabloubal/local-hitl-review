@@ -22,7 +22,7 @@ interface Host {
 
 ## Errors
 
-- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `PATH_NOT_IN_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`, `IO_FAILED`. `PATH_NOT_IN_REPO` is thrown when an anchor path has no enclosing repo; the CLI exits 2. `IO_FAILED` is thrown on an unexpected file-system failure while writing, including running out of retries for a unique file name. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
+- **Operational failures throw** `LhrError { code, message }`. Codes are stable strings: `NOT_A_REPO`, `PATH_NOT_IN_REPO`, `FORMAT_MISSING`, `FORMAT_VERSION`, `THREAD_NOT_FOUND`, `MESSAGE_NOT_FOUND`, `DRAFT_NOT_FOUND`, `NOT_A_DRAFT`, `INVALID_INPUT`, `GIT_FAILED`, `IO_FAILED`. `PATH_NOT_IN_REPO` is thrown when an anchor path has no enclosing repo; the CLI exits 2. `IO_FAILED` is thrown on an unexpected file-system failure while writing, including running out of retries for a unique file name and waiting more than about 5 seconds for the drafts lock held by another process. The CLI maps them to exit codes, and the MCP server maps them to tool errors.
 - **Broken content never throws.** One bad file must not hide the rest of the tree. Reads skip what they can't parse and report it as a `Diagnostic`, the same type `check()` returns.
 
 ```ts
@@ -174,6 +174,7 @@ lhr.submitRound(input: {
 - It follows file-format-v2 § Submitting a review round. Before step 1 it writes `drafts/.submitting` holding the round ID. A rerun after an interruption finishes that same round instead of starting a second one, then deletes the marker.
 - **Idempotency:** if a round already has the given `clientId`, `submitRound` returns that round with `created: false`, like `reply` and `createThread`. Without a `clientId` a retry writes a new round. The `.submitting` marker only covers interrupted runs.
 - Editing or discarding a submitted message throws `NOT_A_DRAFT`.
+- Every draft call (`createDraftThread`, `addDraftMessage`, `updateDraft`, `discardDraft`, `submitRound`) takes the drafts lock (file-format-v2 § Tree), so they never interleave, across processes too. A call that can't get the lock within about 5 seconds throws `IO_FAILED`. A `submitRound` that had to wait for the lock and finds that a concurrent submit wrote a round with the same author, verdict and summary treats it as a double submit: it returns that round with `resumed: true` instead of writing a second round. Otherwise it is an ordinary submit of the drafts that are left (none left means a bare round).
 
 ### Immediate writes
 

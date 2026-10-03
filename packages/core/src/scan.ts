@@ -17,7 +17,7 @@ import { DiagnosticCode } from './model.js';
  * names and file types alone: unreadable entries, invalid names, symlinks and missing
  * `thread.md`. It never follows a symlink: one where a thread directory or a `*.md` file
  * is expected is reported as SYMLINK and skipped. Draft bookkeeping (`.lhr/drafts/.gitignore`,
- * `.submitting`, `.tmp/`) lives outside the listed directories and is never seen.
+ * `.submitting`, `.lock/`, `.tmp/`) lives outside the listed directories and is never seen.
  */
 
 export const THREAD_FILE = 'thread.md';

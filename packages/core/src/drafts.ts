@@ -1,15 +1,18 @@
-import { mkdir, readFile, readdir, rm, rmdir, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, readFile, readdir, rename, rm, rmdir, stat } from 'node:fs/promises';
 import * as path from 'node:path';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
 import { parseFrontmatter, serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
 import { parseId, parseMessageFileName, parseMessageId } from './ids.js';
+import { withDraftsLock, type LockInfo } from './lock.js';
 import type { Author, MessageView, Severity, ThreadStatus, ThreadView, Verdict } from './model.js';
 import type { Tree } from './tree.js';
 import {
   MAX_ATTEMPTS,
   createAtomic,
   ensureDraftsRoot,
+  fsyncDir,
   replaceAtomic,
   tempDir,
   invalid,
@@ -55,7 +58,10 @@ export interface SubmitRoundResult {
   roundId: string;
   threadIds: string[];
   messageIds: string[];
-  /** true when this call finished an earlier, interrupted round */
+  /**
+   * true when this call finished an earlier, interrupted round, or when it waited for a
+   * concurrent submit with the same author, verdict and summary and returns that round
+   */
   resumed: boolean;
   /** invalid drafts left in drafts/ (empty when resuming) */
   skippedDraftIds: string[];
@@ -87,6 +93,26 @@ async function ensureDrafts(tree: Tree): Promise<void> {
   await mkdir(draftThreadsDir(tree), { recursive: true });
 }
 
+/** Runs `fn` under the cross-process drafts lock (see lock.ts), creating `drafts/` first. */
+async function locked<T>(
+  tree: Tree,
+  op: string,
+  fn: (lock: LockInfo) => Promise<T>,
+): Promise<T> {
+  await ensureDraftsRoot(tree);
+  return withDraftsLock(tree.root, op, fn);
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await lstat(file);
+    return true;
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return false;
+    throw err;
+  }
+}
+
 function validateDraft(m: MessageFields): void {
   validateMessage(m);
   if (m.author.kind !== 'human') throw invalid('draft messages must have a human author');
@@ -106,21 +132,37 @@ export async function createDraftThread(
     body: input.body,
     ...(input.severity !== undefined ? { severity: input.severity } : {}),
   });
-  await ensureDrafts(tree);
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    const threadId = tree.newId();
-    const dir = path.join(draftThreadsDir(tree), threadId);
+  return locked(tree, 'createDraftThread', async () => {
+    // The thread is built complete (thread.md + opening message) in a staging directory
+    // under .tmp/ and renamed into place, so a crash never leaves a thread with no message.
+    const staging = path.join(tempDir(tree), `thread-${randomUUID()}`);
+    await mkdir(draftThreadsDir(tree), { recursive: true });
     try {
-      await mkdir(dir);
-    } catch (err) {
-      if (errnoCode(err) === 'EEXIST') continue;
-      throw err;
+      let messageId: string | undefined;
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        const threadId = tree.newId();
+        const dir = path.join(draftThreadsDir(tree), threadId);
+        // Safe under the lock: only lock holders create draft thread directories.
+        if (await exists(dir)) continue;
+        if (messageId === undefined) {
+          await mkdir(staging);
+          await createAtomic(tree, path.join(staging, THREAD_FILE), text);
+          messageId = await writeMessage(tree, staging, 'human', openingText);
+        }
+        try {
+          await rename(staging, dir);
+        } catch (err) {
+          if (['EEXIST', 'ENOTEMPTY'].includes(errnoCode(err) ?? '')) continue;
+          throw err;
+        }
+        await fsyncDir(draftThreadsDir(tree));
+        return { threadId, messageId };
+      }
+      throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
+    } finally {
+      await rm(staging, { recursive: true, force: true });
     }
-    if (!(await createAtomic(tree, path.join(dir, THREAD_FILE), text))) continue;
-    const messageId = await writeMessage(tree, dir, 'human', openingText);
-    return { threadId, messageId };
-  }
-  throw new LhrError('IO_FAILED', 'could not find an unused thread ID');
+  });
 }
 
 async function findThread(tree: Tree, threadId: string): Promise<ThreadView | undefined> {
@@ -135,12 +177,13 @@ export async function addDraftMessage(
 ): Promise<{ messageId: string }> {
   validateDraft(input);
   const text = messageText(input);
-  const thread = await findThread(tree, threadId);
-  if (!thread) throw new LhrError('THREAD_NOT_FOUND', `no thread ${threadId}`);
-  const dir = path.join(draftThreadsDir(tree), threadId);
-  await ensureDrafts(tree);
-  await mkdir(dir, { recursive: true });
-  return { messageId: await writeMessage(tree, dir, 'human', text) };
+  return locked(tree, 'addDraftMessage', async () => {
+    const thread = await findThread(tree, threadId);
+    if (!thread) throw new LhrError('THREAD_NOT_FOUND', `no thread ${threadId}`);
+    const dir = path.join(draftThreadsDir(tree), threadId);
+    await mkdir(dir, { recursive: true });
+    return { messageId: await writeMessage(tree, dir, 'human', text) };
+  });
 }
 
 interface FoundDraft {
@@ -161,6 +204,12 @@ async function findDraftMessage(tree: Tree, messageId: string): Promise<FoundDra
 
 /** Rewrites a draft message in place; unset patch fields keep their current value. */
 export async function updateDraft(tree: Tree, messageId: string, patch: DraftPatch): Promise<void> {
+  // Under the lock a submit cannot move the draft between the lookup and the rename,
+  // so the rename can never recreate a draft that was just submitted.
+  return locked(tree, 'updateDraft', () => updateLocked(tree, messageId, patch));
+}
+
+async function updateLocked(tree: Tree, messageId: string, patch: DraftPatch): Promise<void> {
   const { threadId, message } = await findDraftMessage(tree, messageId);
   const status = patch.status ?? message.status;
   const severity = patch.severity ?? message.severity;
@@ -184,6 +233,10 @@ export async function updateDraft(tree: Tree, messageId: string, patch: DraftPat
 
 /** Deletes a draft message, or a draft thread with its messages. Submitted ids throw NOT_A_DRAFT. */
 export async function discardDraft(tree: Tree, id: string): Promise<void> {
+  return locked(tree, 'discardDraft', () => discardLocked(tree, id));
+}
+
+async function discardLocked(tree: Tree, id: string): Promise<void> {
   if (parseMessageId(id)) {
     const { threadId } = await findDraftMessage(tree, id);
     const dir = path.join(draftThreadsDir(tree), threadId);
@@ -428,10 +481,16 @@ async function publishThread(
  * can depend on it before the round file exists. Drafts that are invalid (a mismatched
  * author kind, an empty body without status or severity, a broken thread) are not
  * listed, stay in `drafts/` and come back as `skippedDraftIds` (empty when resuming).
- * On file systems without hard links the no-partial-file guarantee and the protection
- * against concurrent submits are best-effort: an error-path unlink covers process errors,
- * not a hard kill mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against process death;
- * power loss is best-effort (files and directories are fsynced where the platform allows).
+ *
+ * The whole submit runs under the drafts lock, so concurrent submits (and draft edits)
+ * are serialised on every file system. A submit that had to wait for the lock, and finds
+ * that a concurrent submit wrote a round with the same author, verdict and summary
+ * meanwhile, is a double submit: it returns that round with `resumed: true` rather than
+ * starting a second one. Otherwise it is an ordinary submit of the drafts left. On file
+ * systems without hard links the no-partial-file guarantee is best-effort: an error-path
+ * unlink covers process errors, not a hard kill mid-write. Unexpected file system errors surface as `LhrError`. Crash-safe against
+ * process death; power loss is best-effort (files and directories are fsynced where the
+ * platform allows).
  */
 export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<SubmitRoundResult> {
   validateAuthor(input.author);
@@ -441,45 +500,85 @@ export async function submitRound(tree: Tree, input: SubmitRoundInput): Promise<
   }
   const round = roundText(input);
   try {
-    return await runRound(tree, round);
+    // Rounds written while this call waits for the lock belong to a concurrent submit.
+    const before = new Set(await listRoundIds(tree));
+    return await locked(tree, 'submitRound', (lock) =>
+      runRound(tree, round, lock.waited ? before : undefined),
+    );
   } catch (err) {
     if (err instanceof LhrError) throw err;
     throw new LhrError('IO_FAILED', `submitRound failed: ${(err as Error).message}`);
   }
 }
 
-async function runRound(tree: Tree, roundContent: string): Promise<SubmitRoundResult> {
+function roundsDir(tree: Tree): string {
+  return path.join(tree.root, '.lhr', 'rounds');
+}
+
+async function listRoundIds(tree: Tree): Promise<string[]> {
+  try {
+    const names = await readdir(roundsDir(tree));
+    return names.filter((n) => n.endsWith('.md')).map((n) => n.slice(0, -3));
+  } catch (err) {
+    if (errnoCode(err) === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+/** The author, verdict and summary of a round file: what makes two submits the same submit. */
+function roundKey(text: string, rel: string): string | undefined {
+  const parsed = parseFrontmatter(text, rel);
+  if (parsed.diagnostics.length > 0) return undefined;
+  const { data } = parsed;
+  return JSON.stringify([data['author.kind'], data['author.name'], data.verdict, parsed.body]);
+}
+
+/** The newest round not in `before` with the same author, verdict and summary. */
+async function findDoubleSubmit(
+  tree: Tree,
+  roundContent: string,
+  before: Set<string>,
+): Promise<string | undefined> {
+  const key = roundKey(roundContent, 'submitted round');
+  const fresh = (await listRoundIds(tree)).filter((id) => !before.has(id)).sort().reverse();
+  for (const id of fresh) {
+    const text = await readOptional(path.join(roundsDir(tree), `${id}.md`));
+    if (text !== undefined && roundKey(text, `.lhr/rounds/${id}.md`) === key) return id;
+  }
+  return undefined;
+}
+
+/**
+ * Runs under the drafts lock: no other submit or draft edit can interleave.
+ * `roundsBefore` is set only when the call had to wait for the lock.
+ */
+async function runRound(
+  tree: Tree,
+  roundContent: string,
+  roundsBefore: Set<string> | undefined,
+): Promise<SubmitRoundResult> {
+  const markerFile = path.join(draftsDir(tree), MARKER);
+  let marker = await readMarker(markerFile);
+  const resumed = marker !== undefined;
+  if (marker === undefined && roundsBefore !== undefined) {
+    const joined = await findDoubleSubmit(tree, roundContent, roundsBefore);
+    if (joined !== undefined) return roundResult(tree, joined, true, []);
+  }
   await ensureDrafts(tree);
   await cleanStaleTemps(tree);
-  const markerFile = path.join(draftsDir(tree), MARKER);
-
-  let marker = await readMarker(markerFile);
-  let resumed = marker !== undefined;
   let skippedDraftIds: string[] = [];
   const scan = await scanDrafts(tree);
   if (marker === undefined) {
-    const fresh: Marker = { round: tree.newId(), messages: scan.eligible };
-    const text = `${JSON.stringify(fresh)}\n`;
-    if (await createAtomic(tree, markerFile, text)) {
-      marker = fresh;
-      skippedDraftIds = scan.skipped;
-    } else {
-      // Someone else (a concurrent submit) wrote a marker first: resume theirs if valid,
-      // replace it only if it is invalid.
-      marker = await readMarker(markerFile);
-      if (marker !== undefined) {
-        resumed = true;
-      } else {
-        await replaceAtomic(tree, markerFile, text);
-        marker = fresh;
-        skippedDraftIds = scan.skipped;
-      }
-    }
+    // Absent or invalid: (re)write it. The lock makes a plain atomic replace safe, also
+    // on file systems without hard links.
+    marker = { round: tree.newId(), messages: scan.eligible };
+    await replaceAtomic(tree, markerFile, `${JSON.stringify(marker)}\n`);
+    skippedDraftIds = scan.skipped;
   }
   const roundId = marker.round;
 
-  await mkdir(path.join(tree.root, '.lhr', 'rounds'), { recursive: true });
-  await createAtomic(tree, path.join(tree.root, '.lhr', 'rounds', `${roundId}.md`), roundContent);
+  await mkdir(roundsDir(tree), { recursive: true });
+  await createAtomic(tree, path.join(roundsDir(tree), `${roundId}.md`), roundContent);
 
   const byThread = new Map<string, string[]>();
   for (const id of marker.messages) {
@@ -492,7 +591,15 @@ async function runRound(tree: Tree, roundContent: string): Promise<SubmitRoundRe
   }
   await rmdirIfEmpty(draftThreadsDir(tree));
   await rm(markerFile, { force: true });
+  return roundResult(tree, roundId, resumed, skippedDraftIds);
+}
 
+async function roundResult(
+  tree: Tree,
+  roundId: string,
+  resumed: boolean,
+  skippedDraftIds: string[],
+): Promise<SubmitRoundResult> {
   const threadIds: string[] = [];
   const messageIds: string[] = [];
   for (const thread of (await tree.load()).threads()) {
