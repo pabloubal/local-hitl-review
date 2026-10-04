@@ -1,6 +1,6 @@
 {
   "name": "@pablou/lhr",
-  "version": "0.23.7",
+  "version": "0.23.8",
   "description": "Local human-in-the-loop code review CLI and MCP server",
   "license": "MIT",
   "repository": {

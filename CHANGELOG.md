@@ -1,3 +1,10 @@
+## [0.23.8](https://github.com/pabloubal/local-hitl-review/compare/v0.23.7...v0.23.8) (2026-10-04)
+
+
+### Bug Fixes
+
+* **skills:** drop the [#155](https://github.com/pabloubal/local-hitl-review/issues/155) same-second workarounds from verify-lhr ([#163](https://github.com/pabloubal/local-hitl-review/issues/163)) ([f097866](https://github.com/pabloubal/local-hitl-review/commit/f09786627ea4e84293b9635a3aaf31858ca0ef0f))
+
 ## [0.23.7](https://github.com/pabloubal/local-hitl-review/compare/v0.23.6...v0.23.7) (2026-10-04)
 
 

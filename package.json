@@ -1,7 +1,7 @@
 {
   "name": "local-hitl-review-monorepo",
   "private": true,
-  "version": "0.23.7",
+  "version": "0.23.8",
   "license": "MIT",
   "repository": {
     "type": "git",
