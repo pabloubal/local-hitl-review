@@ -57,8 +57,8 @@ export const COMMANDS: CommandHelp[] = [
     path: ['thread', 'show'],
     summary: 'Show one thread with its messages.',
     usage: 'lhr thread show <id> [flags]',
-    args: [['id', 'Thread handle or unambiguous prefix']],
-    examples: ['lhr thread show 20261002T1015', 'lhr thread show 20261002T101500Z-k3m9qz --json'],
+    args: [['id', 'Thread handle, full ID or unambiguous ID prefix']],
+    examples: ['lhr thread show k3m9', 'lhr thread show 20261002T101500Z-k3m9qz --json'],
   },
   {
     path: ['thread', 'create'],
