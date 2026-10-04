@@ -82,7 +82,10 @@ export const COMMANDS: CommandHelp[] = [
       "lhr thread create src/auth/session.ts:42-47 --severity high - <<'EOF'",
       'lhr thread create README.md --body "Document the new flags" --client-id readme-flags',
     ],
-    notes: ['Without --client-id a retry creates a second thread.'],
+    notes: [
+      'Without --client-id a retry creates a second thread.',
+      'A dry run validates input and thread existence, not anchors (the anchor snapshot is captured only on a real write).',
+    ],
   },
   {
     path: ['thread', 'reply'],
