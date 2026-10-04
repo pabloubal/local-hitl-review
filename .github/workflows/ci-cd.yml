@@ -15,15 +15,15 @@ permissions:
 
 jobs:
   # Unit, integration and CLI built-binary tests on every supported Node
-  # (engines.node >=20), then a pack-and-run smoke test of the npm tarball.
-  test:
+  # (engines.node >=22), then a pack-and-run smoke test of the npm tarball.
+  test-matrix:
     name: test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 7
     strategy:
       fail-fast: false
       matrix:
-        node: ['20', '22']
+        node: ['22', '24']
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,6 +44,17 @@ jobs:
       - name: Smoke test the packed CLI
         run: npm run smoke:pack -w @pablou/lhr
 
+  # Single required status check (the `main` ruleset requires `test`), so the
+  # matrix can change without editing the ruleset.
+  test:
+    name: test
+    needs: test-matrix
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every matrix job to pass
+        run: test "${{ needs.test-matrix.result }}" = success
+
   # End-to-end scenarios against approved output (packages/vscode/e2e).
   # Non-blocking while the suite proves itself stable on Linux.
   e2e:
@@ -62,7 +73,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies

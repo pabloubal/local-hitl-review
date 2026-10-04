@@ -8,7 +8,7 @@ The MCP server that ships inside the `lhr` binary (ADR 0002: one program). It gi
 - **stdout carries only protocol frames.** Logs and warnings go to stderr. Nothing else may write to stdout.
 - The server **always starts**, even outside a review root. A missing `.lhr/` is reported per call (see [Root resolution](#root-resolution)), never at startup, so a misconfigured client still shows the tools and a useful error.
 - The process exits when stdin closes. On exit it disposes every open `LhrTree`.
-- Built with `@modelcontextprotocol/sdk` and `zod`, both bundled (zero runtime dependencies, Node `>=20`; issue 103).
+- Built with `@modelcontextprotocol/sdk` and `zod`, both bundled (zero runtime dependencies, Node `>=22`; issues 103 and the Node 20 end-of-life amendment).
 
 ## Server identity and capabilities
 

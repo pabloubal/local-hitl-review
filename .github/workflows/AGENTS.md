@@ -7,9 +7,10 @@
 GitHub Actions workflows and CI/CD automation
 
 ### `ci-cd.yml` jobs
-- **`test`**: matrix over Node 20 and 22 (`engines.node` is `>=20`), `fail-fast: false`. Runs `xvfb-run -a npm test` (unit, VS Code integration, and the CLI built-binary tests in `packages/cli/test`), then `npm run smoke:pack -w @pablou/lhr`.
+- **`test-matrix`**: matrix over Node 22 and 24 (`engines.node` is `>=22`), `fail-fast: false`; its checks are named `test (Node 22)` and `test (Node 24)`. Runs `xvfb-run -a npm test` (unit, VS Code integration, and the CLI built-binary tests in `packages/cli/test`), then `npm run smoke:pack -w @pablou/lhr`.
 - **Smoke test** (`packages/cli/scripts/smoke-pack.mjs`): builds the CLI, `npm pack`s it, installs the tarball into a temp dir outside the workspace, and runs the installed `lhr --version`, `lhr --help`, and an `lhr mcp` initialize + `tools/list` handshake over stdio. Run it locally with the same command.
-- **`e2e`**: Playwright scenarios, Node 20, non-blocking (`continue-on-error`).
+- **`test`**: the single required status check (the `main` ruleset requires `test`). It depends on `test-matrix` and fails unless every matrix job passed, so the matrix can change without editing the ruleset.
+- **`e2e`**: Playwright scenarios, Node 22, non-blocking (`continue-on-error`).
 - **`release`**: push to `main`/`master` only, after `test`. Node 22 with npm upgraded to `^11.5.1`, `permissions: contents: write, id-token: write`. Runs semantic-release (`.releaserc.json`).
 
 ### Release and npm trusted publishing
