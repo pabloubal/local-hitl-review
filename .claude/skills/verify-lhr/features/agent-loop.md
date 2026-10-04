@@ -25,15 +25,15 @@ Preconditions: baseline, `init`, and one submitted thread: `T=$($V run --stdin "
 - **Reply.** `$V run --agent --ev agent-loop/02-reply --stdin "Added the guard." -- thread reply "$T" --client-id r1 -` prints `added message <ts>-agent-<rand> on thread <T>`. `$V run --agent -- inbox` now prints `0 threads in the inbox`; `$V run -- thread list` shows `TURN human`, `MSGS 2`.
 - **Idempotent.** Repeat the same command: `exists message <same id> on thread <T>`, exit 0; `$V tree` shows one agent message file.
 - **Show.** `$V run -- thread show "$T"` ends with `verify-agent (agent)  <date>` and `Added the guard.`.
-- **Resolve.** `sleep 1 && $V run --agent --ev agent-loop/03-resolve -- thread resolve "$T" --body "Done."`; `$V run -- thread list --status all` still lists it (TURN human) while `$V run -- thread list` (open only) prints `0 open threads`. `$V tree --ev agent-loop/after-resolve` shows the new `<ts>-agent-<rand>.md` message file with `status: resolved` in its frontmatter and the body `Done.`; a reopen writes `status: open` the same way.
-- **Reopen.** `sleep 1 && $V run --agent --ev agent-loop/04-reopen -- thread reopen "$T" --body "Not done after all."` then `$V run -- thread list` shows the thread again.
-- **Identity.** `$V run --agent --agent-name other-agent --stdin x -- thread reply "$T" -` after a `sleep 1`: `thread show` attributes the message to `other-agent`.
+- **Resolve.** `$V run --agent --ev agent-loop/03-resolve -- thread resolve "$T" --body "Done."`; `$V run -- thread list --status all` still lists it (TURN human) while `$V run -- thread list` (open only) prints `0 open threads`. `$V tree --ev agent-loop/after-resolve` shows the new `<ts>-agent-<rand>.md` message file with `status: resolved` in its frontmatter and the body `Done.`; a reopen writes `status: open` the same way.
+- **Reopen.** `$V run --agent --ev agent-loop/04-reopen -- thread reopen "$T" --body "Not done after all."` then `$V run -- thread list` shows the thread again.
+- **Identity.** `$V run --agent --agent-name other-agent --stdin x -- thread reply "$T" -`: `thread show` attributes the message to `other-agent`.
 - **Agent-started thread.** `$V run --agent --stdin "Agent thread." -- thread create README.md --client-id c1 -` prints `created thread <handle>`; repeating prints `exists thread <handle>`; `$V run -- thread list` shows it without any `review submit`.
 - **Limits.** `$V run --agent --expect 2 -- review submit --verdict approve` (refused, see [human-review](./human-review.md)). A draft created by the human after the submit stays out of `$V run --agent -- inbox` until the next submit.
 
 ## Gotchas
 
-- `sleep 1` between every write, or the status you read back may be the previous one (#155): `reopen` straight after `resolve` once reported `resolved` with `changed:false`.
+- Agent writes need no `sleep` between them: same-second messages are read back in write order (#155, fixed in 0.23.6). On an older build, `reopen` straight after `resolve` reports `resolved` with `changed:false`.
 - `inbox` is scoped to the agent's session; a thread another session answered still shows with `--all-sessions`.
 - A human `thread resolve`/`reopen` is a draft until `review submit` (see human-review); the agent versions apply immediately.
 - Agent mode without `LHR_SESSION_ID` (`--as agent`) prints a warning and writes messages with no session; the harness always sets one.

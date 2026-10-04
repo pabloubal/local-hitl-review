@@ -61,7 +61,7 @@ Recipes for each feature are in [`features/`](features/README.md). Read the inde
 
 - **Chain with `&&`.** `run` and `mcp` exit non-zero on an unexpected exit code or error, so a chain stops at the first surprise.
 - **Act through the CLI or MCP only.** Never write `.lhr/` files by hand to stand in for a command. The only allowed direct edits are to the fixture's source files (to move or break an anchor) and, in the recipe that says so, deliberate corruption to prove `check` fails.
-- **Same-second writes mis-order (#155).** Message IDs have one-second resolution and sort by a random suffix within a second, so two writes inside one second can be read back in the wrong order (a `thread_reopen` right after `thread_resolve` once returned `resolved`). Put `sleep 1` between writes in CLI recipes (the MCP scripts carry `{"sleep":1100}` steps). A recipe whose result changes with the sleep is exercising #155, not the feature.
+- **Round IDs still have one-second resolution.** Message order within a thread is fixed (#155), but a thread create followed by `review submit`, or two submits, inside one second can still collide on IDs. Keep `sleep 1` before `review submit` and between submits.
 - **Drafts are human-only.** A human `thread create`/`reply` saves a draft that agents cannot see until `review submit`. Submit before switching to `--agent`.
 - **Handles.** `thread create` prints a 4-character handle (`thread 43pg`). Pass it, a longer prefix, or the full ID to later commands; agent mode resolves handles among submitted threads only.
 - **Exit codes.** 0 ok, 1 `check` found errors, 2 usage/invalid input, 3 not found, 4 conflict, 5 environment. Pass `--expect N` for negative cases.
@@ -97,4 +97,4 @@ The same flows exist as scenario tests in `packages/cli/test/scenarios-*.test.mj
 | `anchors`                        | `scenarios-anchors.test.mjs` |
 | `mcp-server`                     | `scenarios-mcp.test.mjs`     |
 
-When you change a recipe, change its scenario in the same PR, and the reverse. The scenarios assert; this skill produces the evidence a human can read. #155 is a `todo` test in `scenarios-agent.test.mjs`: remove `todo` when core is fixed. The Playwright `e2e` job covers the VS Code extension only.
+When you change a recipe, change its scenario in the same PR, and the reverse. The scenarios assert; this skill produces the evidence a human can read. The same-second reopen-after-resolve case (#155) is a regular test in `scenarios-agent.test.mjs`. The Playwright `e2e` job covers the VS Code extension only.

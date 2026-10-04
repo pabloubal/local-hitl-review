@@ -3,17 +3,14 @@
   { "call": "inbox", "save": { "tid": "data.threads.0.shortId" } },
   { "call": "thread_list", "args": { "status": "open", "whoseTurn": "agent" } },
   { "call": "thread_show", "args": { "id": "$tid" } },
-  { "sleep": 1100 },
   {
     "call": "thread_reply",
     "args": { "id": "$tid", "body": "Added the guard.", "clientId": "mcp-r1" }
   },
-  { "sleep": 1100 },
   {
     "call": "thread_reply",
     "args": { "id": "$tid", "body": "Added the guard.", "clientId": "mcp-r1" }
   },
-  { "sleep": 1100 },
   {
     "call": "thread_create",
     "args": {
@@ -24,9 +21,7 @@
       "clientId": "mcp-c1"
     }
   },
-  { "sleep": 1100 },
   { "call": "thread_resolve", "args": { "id": "$tid", "body": "Done." } },
-  { "sleep": 1100 },
   {
     "call": "thread_reopen",
     "args": { "id": "$tid", "body": "Not done after all." }

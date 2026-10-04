@@ -33,5 +33,5 @@ Preconditions: baseline, `init`, one submitted thread: `$V run --stdin "Validate
 - Exercise the server only through `$V mcp`; piping JSON into `lhr mcp` by hand misses the handshake and the exit assertion.
 - The script's `save` map pulls fields from `structuredContent`; a failing path leaves `$tid` unsubstituted, and the next call fails `INVALID_INPUT`. Read the step output before the later steps.
 - The server caches the tree per review root for its lifetime. Whether a CLI write made while it runs is seen on the next tool call is _(unverified live)_.
-- Same-second writes mis-order (#155): the script sleeps 1.1 s between writes. Remove a sleep and `thread_reopen` after `thread_resolve` returns `resolved`/`changed:false`; that is the bug, not a regression in the tool.
+- The script has no sleeps between writes since #155 was fixed (0.23.6). On an older build, `thread_reopen` straight after `thread_resolve` returns `resolved`/`changed:false`.
 - The server writes nothing to stdout except JSON-RPC; a stray log line on stdout would break clients, and the harness would report a JSON parse error.
