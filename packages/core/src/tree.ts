@@ -4,7 +4,7 @@ import { checkTree, type CheckResult } from './check.js';
 import { checkFormat } from './format.js';
 import { GitExitError, runGit, type GitBatch } from './git.js';
 import { Repo, RepoSet } from './repos.js';
-import { createId, createMessageFileName, defaultRandom, type AuthorKind } from './ids.js';
+import { createId, createMessageFileName, defaultRandom, parseMessageId, type AuthorKind } from './ids.js';
 import { computeAnchors } from './anchoring.js';
 import type { AnchorOptions, AnchorResult, Author, ThreadView, TreeSnapshot } from './model.js';
 import { readTree } from './read.js';
@@ -49,7 +49,11 @@ export interface Host {
 export interface LhrTree {
   readonly root: string;
   newId(): string;
-  newMessageFileName(kind: AuthorKind): string;
+  /**
+   * `after`: the latest message id already in the thread; the result always
+   * sorts after it, so same-second writes keep write order.
+   */
+  newMessageFileName(kind: AuthorKind, after?: string): string;
   /**
    * Reads the whole tree into an immutable snapshot. Broken files become
    * `problems` on the snapshot; this never throws for file content.
@@ -111,8 +115,17 @@ export class Tree implements LhrTree {
     return createId(this.now(), this.random());
   }
 
-  newMessageFileName(kind: AuthorKind): string {
-    return createMessageFileName(this.now(), kind, this.random());
+  newMessageFileName(kind: AuthorKind, after?: string): string {
+    const random = this.random();
+    let now = this.now();
+    let name = createMessageFileName(now, kind, random);
+    const floor = after === undefined ? undefined : parseMessageId(after);
+    if (floor && name.slice(0, -3) < after!) {
+      // Not strictly later: move to the second after the latest message.
+      now = new Date(floor.timestamp.getTime() + 1000);
+      name = createMessageFileName(now, kind, random);
+    }
+    return name;
   }
 
   async load(): Promise<TreeSnapshot> {

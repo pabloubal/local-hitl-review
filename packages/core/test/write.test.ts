@@ -453,6 +453,27 @@ status: open
   });
 });
 
+describe('same-second ordering (#155)', () => {
+  it('orders messages by write order and derives state from the last', async () => {
+    await withCtx(async (c) => {
+      const { threadId } = await c.tree.createThread({
+        anchor: { path: 'src/a.ts', kind: 'file' },
+        body: 'q',
+        author: HUMAN,
+      });
+      // Clock never advances. Random parts descend so a random-suffix sort would invert order.
+      c.randoms.push('zzzzzz');
+      const r1 = await c.tree.resolve(threadId, AGENT);
+      c.randoms.push('aaaaaa');
+      const r2 = await c.tree.reopen(threadId, AGENT);
+      assert.ok(r1.messageId && r2.messageId && r1.messageId < r2.messageId);
+      const t = (await c.tree.load()).thread(threadId);
+      assert.equal(t?.status, 'open');
+      assert.equal(t?.messages.at(-1)?.id, r2.messageId);
+    });
+  });
+});
+
 describe('validation before writing', () => {
   it('leaves nothing on disk when a value cannot be serialized', async () => {
     await withCtx(async (c) => {
