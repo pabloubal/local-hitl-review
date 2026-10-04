@@ -12,7 +12,7 @@ This directory is the maintained source for verifying the user-facing behavior o
 ## Driving conventions
 
 - Chain steps with `&&`; `run` and `mcp` fail the chain on an unexpected exit.
-- `sleep 1` between any two writes (see #155 in SKILL.md).
+- `sleep 1` before `review submit` and between submits (round IDs are second-resolution, see SKILL.md).
 - Handles come from `thread create` output (`thread <4 chars>`); capture them into a shell variable: `T=$($V run -- thread create ... | sed -n 's/^thread //p')`.
 - Read `.lhr/` through `$V tree`, never by editing it.
 - Reset fixture source edits with `git -C "$($V path)" checkout -- src/app.ts` (restores the base file; the TODO line is part of the working-tree edit, so re-create the session when the exact fixture matters).
