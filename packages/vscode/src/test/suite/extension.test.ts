@@ -5,11 +5,11 @@ suite('Extension Test Suite', () => {
   vscode.window.showInformationMessage('Start all tests.');
 
   test('Extension should be present', () => {
-    assert.ok(vscode.extensions.getExtension('pablo.local-hitl-review'));
+    assert.ok(vscode.extensions.getExtension('pablou.local-hitl-review'));
   });
 
   test('Extension should activate successfully', async () => {
-    const ext = vscode.extensions.getExtension('pablo.local-hitl-review');
+    const ext = vscode.extensions.getExtension('pablou.local-hitl-review');
     if (!ext) {
       assert.fail('Extension not found');
     }

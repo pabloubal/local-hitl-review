@@ -24,7 +24,7 @@ const BUNDLE = path.join(EXT, "out/extension.js");
 const RUN = process.env.HITL_RUN || path.join(os.tmpdir(), "verify-hitl-review", "current");
 const STATE = path.join(RUN, "state.json");
 const EVIDENCE = path.join(RUN, "evidence");
-const EXT_ID = "pablo.local-hitl-review";
+const EXT_ID = "pablou.local-hitl-review";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const die = (msg) => { console.error(`hitl: ${msg}`); process.exit(1); };
