@@ -1,3 +1,10 @@
+## [0.23.9](https://github.com/pabloubal/local-hitl-review/compare/v0.23.8...v0.23.9) (2026-10-04)
+
+
+### Bug Fixes
+
+* **vscode:** add Marketplace listing metadata ([#165](https://github.com/pabloubal/local-hitl-review/issues/165)) ([6c000c6](https://github.com/pabloubal/local-hitl-review/commit/6c000c6850eb18e2b976b67bbc6e39775fa0fce5))
+
 ## [0.23.8](https://github.com/pabloubal/local-hitl-review/compare/v0.23.7...v0.23.8) (2026-10-04)
 
 
