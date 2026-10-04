@@ -6,7 +6,7 @@
 [![VS Code 1.100+](https://img.shields.io/badge/VS%20Code-1.100%2B-0a0a0c?style=flat-square)](https://github.com/pabloubal/local-hitl-review/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-<a href="https://github.com/pabloubal/local-hitl-review"><img src="packages/vscode/assets/hero.jpeg" alt="Local HITL Review" width="100%" /></a>
+<a href="https://github.com/pabloubal/local-hitl-review"><img src="packages/vscode/assets/hero.png" alt="Local HITL Review: review agent code, locally." width="100%" /></a>
 
 Local code review that keeps **the human in the loop** for AI-written code, completely offline. Leave structured feedback, flag lines of code, and manage review states without pushing a Draft PR to GitHub. Two front ends share one core:
 

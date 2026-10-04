@@ -9,3 +9,4 @@ esbuild.mjs
 .feedback/**
 e2e/**
 e2e-results/**
+assets/hero.png
