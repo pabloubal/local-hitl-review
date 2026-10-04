@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild';
-import { chmodSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -23,6 +23,7 @@ const buildOptions = {
 // mid-write would run an empty script (exit 0, no output).
 const result = await esbuild.build({ ...buildOptions, write: false });
 for (const out of result.outputFiles) {
+  mkdirSync(dirname(out.path), { recursive: true });
   const tmp = `${dirname(out.path)}/.${basename(out.path)}.${process.pid}.tmp`;
   writeFileSync(tmp, out.contents);
   if (out.path.endsWith('lhr.mjs')) chmodSync(tmp, 0o755);
