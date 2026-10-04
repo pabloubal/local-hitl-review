@@ -1,0 +1,4 @@
+[
+  { "method": "tools/list" },
+  { "call": "inbox", "expectError": true, "expectCode": "NOT_A_REPO" }
+]
