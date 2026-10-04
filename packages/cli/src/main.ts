@@ -180,7 +180,7 @@ async function execute(
     activeTree = undefined;
     await tree?.dispose();
   }
-  return EXIT.OK;
+  return ctx.exitCode ?? EXIT.OK;
 }
 
 function accepted(command: Command): OptionsConfig {
