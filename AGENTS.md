@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-25 | Last verified: 2026-09-25 -->
+<!-- Last updated: 2026-10-04 | Last verified: 2026-09-25 -->
 
 # AGENTS.md
 
@@ -92,7 +92,7 @@ docs/            → documentation and agent guidelines
 - Use conventional commit format: `type(scope): subject`
 - Use **atomic commits** (one logical change per commit); preserve signatures, keep bisection useful
 - **Show test output as evidence before claiming work is complete** — never say "try again", "should work now", "tested", "verified", or "all green" without pasted command output
-- **Keep the verification skills in step with the product.** A change that adds or alters something a user or an agent can see or call (an extension view, command or comment action, an `lhr` command, an MCP tool, the `.review` format) updates the matching recipe in the same PR: `.claude/skills/verify-hitl-review/features/` for the VS Code extension, and `.claude/skills/verify-lhr/features/` for the CLI and MCP server. A new feature gets a new feature file and an index entry. Run the recipe live and paste its evidence before calling the work done. `/pstack:maintain-verification-skill` re-checks the whole map; run it after a stack of features lands and before a release. The skills are separate from the unit suites and from `packages/vscode/e2e`: a recipe does not run in CI unless it is also written as an e2e spec or a CLI test.
+- **Keep the verification skills in step with the product.** A change that adds or alters something a user or an agent can see or call (an extension view, command or comment action, an `lhr` command, an MCP tool, the `.review` format) updates the matching recipe in the same PR: `.claude/skills/verify-hitl-review/features/` for the VS Code extension, and `.claude/skills/verify-lhr/features/` for the CLI and MCP server. A new feature gets a new feature file and an index entry. Run the recipe live and paste its evidence before calling the work done. `/pstack:maintain-verification-skill` re-checks the whole map; run it after a stack of features lands and before a release. The lhr skill (`.claude/skills/verify-lhr`) is mirrored by CLI scenario tests in `packages/cli/test/scenarios-*.test.mjs` that run in `npm test`: a change to an `lhr` command or MCP tool must update the recipe and the matching scenario test (the "Also run in CI" table in `.claude/skills/verify-lhr/SKILL.md` maps feature files to scenario files). The extension skill is separate from the unit suites and `packages/vscode/e2e`, so its recipes do not run in CI unless also written as an e2e spec.
 - Before any edit, verify `pwd` resolves inside the intended repo worktree — not `.bare/`, not `~/.claude/skills/…`, not `~/.claude/plugins/cache/…` (those are read-only caches that get clobbered on update)
 - For upstream dependency fixes: run **full** test suite, not just affected tests
 - Force-push only with `--force-with-lease`
