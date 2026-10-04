@@ -435,7 +435,7 @@ lhr thread reply <handle> -   |   lhr thread resolve <handle>
 Decision: [bundler and Node floor](https://github.com/pabloubal/local-hitl-review/issues/103).
 
 - **Bundler:** esbuild, already a `devDependency` of `packages/vscode` (`^0.25.5`), so no new dependency. The CLI has its own `packages/cli/esbuild.mjs`, in the style of the extension's.
-- **Build:** entry `packages/cli/src/main.ts`; `bundle: true`, `platform: 'node'`, `format: 'esm'`, `target: 'node20'`. Core is bundled from source with its JSON schemas inline. Not minified (readable stack traces matter more than 800 KB). A source map is emitted locally but not published. Output: one file, `dist/lhr.mjs`, starting with `#!/usr/bin/env node`, exec bit set. If a bundled CommonJS dependency needs `require`, add a `createRequire` banner; a built-binary test covers it.
+- **Build:** entry `packages/cli/src/main.ts`; `bundle: true`, `platform: 'node'`, `format: 'esm'`, `target: 'node22'`. Core is bundled from source with its JSON schemas inline. Not minified (readable stack traces matter more than 800 KB). A source map is emitted locally but not published. Output: one file, `dist/lhr.mjs`, starting with `#!/usr/bin/env node`, exec bit set. If a bundled CommonJS dependency needs `require`, add a `createRequire` banner; a built-binary test covers it.
 - **Dependencies:** `@modelcontextprotocol/sdk` and `zod` are `devDependencies` (bundled), so the published package has **zero runtime dependencies**. Argument parsing is `util.parseArgs`; git is the `git` binary.
 - **`packages/cli/package.json`:**
 
@@ -445,12 +445,12 @@ Decision: [bundler and Node floor](https://github.com/pabloubal/local-hitl-revie
   "type": "module",
   "bin": { "lhr": "dist/lhr.mjs" },
   "files": ["dist/lhr.mjs"],
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "publishConfig": { "access": "public", "provenance": true }
 }
 ```
 
-- **Node floor `>=20`** (`parseArgs` is stable from 20). CI runs the CLI end-to-end tests on Node 20 and 22; that matrix change awaits maintainer approval.
+- **Node floor `>=22`** (Node 20 reached end of life on 2026-04-30; amends issue 103). CI runs the CLI end-to-end tests on Node 22 and 24.
 - **Tests:** `node:test`, end-to-end against the built binary on real temporary git repos (ADR 0004). A smoke test runs `lhr --help` and an `lhr mcp` handshake on each supported Node.
 - **Release** (decision [release pipeline](https://github.com/pabloubal/local-hitl-review/issues/107)): `npm publish` for `packages/cli` joins the existing `@semantic-release/exec` publish step after the `.vsix`, under one version, with npm trusted publishing and provenance. The package must exist on npm before trusted publishing can be linked, so the maintainer publishes once by hand first. The `ci-cd.yml` changes await maintainer approval. A failed publish after tagging is recovered by hand against the release tag.
 

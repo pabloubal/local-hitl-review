@@ -31,7 +31,7 @@ await esbuild.build({
   outfile: bundle,
   format: 'esm',
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   define: { __LHR_VERSION__: JSON.stringify(pkgVersion) },
   logLevel: 'silent',
 });
