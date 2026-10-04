@@ -88,7 +88,7 @@ The extension automatically watches the `.feedback` directory and updates the UI
 
 ## `lhr` CLI
 
-`lhr` (package `@pablou/lhr`, Node 20+) is the command-line front end. A human can review from a terminal; an agent reads its inbox, replies and resolves. It stores threads in a `.lhr/` directory at the review root.
+`lhr` (package `@pablou/lhr`, Node 22+) is the command-line front end. A human can review from a terminal; an agent reads its inbox, replies and resolves. It stores threads in a `.lhr/` directory at the review root.
 
 ```bash
 npx @pablou/lhr --help        # run without installing

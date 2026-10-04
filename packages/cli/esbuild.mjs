@@ -11,7 +11,7 @@ const buildOptions = {
   outfile: 'dist/lhr.mjs',
   format: 'esm',
   platform: 'node',
-  target: 'node20',
+  target: 'node22',
   banner: { js: '#!/usr/bin/env node' },
   define: { __LHR_VERSION__: JSON.stringify(version) },
   sourcemap: true,
