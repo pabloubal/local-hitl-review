@@ -8,7 +8,14 @@
 
 <a href="https://github.com/pabloubal/local-hitl-review"><img src="packages/vscode/assets/hero.jpeg" alt="Local HITL Review" width="100%" /></a>
 
-Tiny VS Code extension that keeps **the human in the loop** for AI code reviews, completely offline. Leave structured feedback, flag lines of code, and manage review states without ever needing to push a Draft PR to GitHub. One dedicated Source Control view, native Editor commenting, and fully readable markdown outputs for your AI Agents to process.
+Local code review that keeps **the human in the loop** for AI-written code, completely offline. Leave structured feedback, flag lines of code, and manage review states without pushing a Draft PR to GitHub. Two front ends share one core:
+
+- **VS Code extension** for the human reviewer: a Source Control view and native editor comments. See [VS Code extension](#vs-code-extension).
+- **`lhr` CLI** (includes an MCP server) for terminals and AI agents: list, read, reply to and resolve review threads. See [`lhr` CLI](#lhr-cli).
+
+## VS Code extension
+
+The extension adds one dedicated Source Control view, native Editor commenting, and fully readable markdown outputs for your AI Agents to process.
 
 - **Draftless Reviews.** Review code locally before it ever leaves your machine.
 - **Agent-Ready Feedback.** Comments are saved seamlessly in a `.feedback` directory as structured Markdown, ready to be read and addressed by your AI coding agents.
@@ -78,3 +85,85 @@ This function doesn't handle the edge case where `store` is null.
 
 Your AI agents (any coding agent) can simply read these files, implement the requested changes, and update the `status` to `acknowledged`. 
 The extension automatically watches the `.feedback` directory and updates the UI in real-time, giving the thread a visual "Resolved" state as soon as the agent fixes the issue!
+
+## `lhr` CLI
+
+`lhr` (package `@pablou/lhr`, Node 20+) is the command-line front end. A human can review from a terminal; an agent reads its inbox, replies and resolves. It stores threads in a `.lhr/` directory at the review root.
+
+```bash
+npx @pablou/lhr --help        # run without installing
+npm i -g @pablou/lhr          # or install the `lhr` binary
+```
+
+### Quick start
+
+```bash
+lhr init                                   # create .lhr/ in the current directory
+lhr thread create src/auth.ts:42-47 --severity high --body "Handle expired sessions"
+lhr review submit --verdict request-changes --summary "Two blockers"
+
+lhr inbox                                  # open threads waiting on the agent
+lhr thread list --status all
+lhr thread show <id>
+lhr thread reply <id> --body "Fixed in 3f2a9c1"
+lhr thread resolve <id>
+lhr thread reopen <id> --body "Still broken on Windows"
+lhr check                                  # validate the whole .lhr/ tree
+```
+
+Thread `<id>` accepts the full ID or a short handle. Run `lhr <command> --help` for flags.
+
+Global flags:
+
+| Flag | Effect |
+|------|--------|
+| `--json` | Print the JSON envelope instead of text |
+| `--as human\|agent` | Override the identity mode |
+| `--dry-run` | Write commands only: validate, write nothing |
+| `--repo <path>` | Start path for review-root discovery |
+
+In human mode, `thread create` and `thread reply` save drafts, and `lhr review submit` turns them into a review round. Agents cannot submit rounds. Set `LHR_SESSION_ID` when running the CLI from an agent, or its writes are treated as human drafts. Full reference: [docs/spec/cli.md](docs/spec/cli.md).
+
+### MCP server
+
+`lhr mcp` runs an MCP server on stdio for agents without a shell. Register it with your MCP client, for example in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "lhr": {
+      "command": "npx",
+      "args": ["-y", "@pablou/lhr", "mcp"]
+    }
+  }
+}
+```
+
+Tools: `inbox`, `thread_list`, `thread_show`, `thread_reply`, `thread_resolve`, `thread_reopen`, `thread_create`. The server always acts as an agent and cannot submit reviews. One server serves one review root; pass `--repo <path>` to choose it. See [docs/spec/mcp.md](docs/spec/mcp.md).
+
+### Agent integration
+
+Give your agent the thin instructions in [`skills/lhr/`](skills/lhr):
+
+- [`SKILL.md`](skills/lhr/SKILL.md): the full inbox, reply and resolve loop, for agents that load skills.
+- [`AGENTS.snippet.md`](skills/lhr/AGENTS.snippet.md): a short block to paste into your `AGENTS.md` or `CLAUDE.md`.
+
+## Where reviews are stored
+
+The two front ends use different stores today:
+
+- `lhr` and the shared core read and write `.lhr/` ([file format](docs/spec/file-format-v2.md), [ADR 0003](docs/adr/0003-thread-layout-on-disk.md)).
+- The VS Code extension reads and writes `.feedback/` (`.review` files, described above). It does not read `.lhr/`, and nothing converts between the two. Threads created in one are not visible in the other.
+
+## Repository layout and contributing
+
+npm workspaces monorepo ([ADR 0004](docs/adr/0004-repo-layout.md)):
+
+| Path | Contents |
+|------|----------|
+| `packages/core` | File format, anchoring, git access, review rounds |
+| `packages/cli` | The `lhr` binary, including `lhr mcp` |
+| `packages/vscode` | The VS Code extension |
+| `skills/` | Agent skill and `AGENTS.md` snippet |
+
+Contribution rules are in [AGENTS.md](AGENTS.md). Changes that alter what a user or agent sees update the live-verification skills in `.claude/skills/verify-hitl-review` (extension) and `.claude/skills/verify-lhr` (CLI and MCP). Background: [docs/VISION.md](docs/VISION.md) and [docs/adr](docs/adr).
