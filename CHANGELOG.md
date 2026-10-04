@@ -1,3 +1,10 @@
+## [0.23.7](https://github.com/pabloubal/local-hitl-review/compare/v0.23.6...v0.23.7) (2026-10-04)
+
+
+### Bug Fixes
+
+* **cli:** require Node 22 or newer and test on 22 and 24 ([#164](https://github.com/pabloubal/local-hitl-review/issues/164)) ([d5fee82](https://github.com/pabloubal/local-hitl-review/commit/d5fee8270ef5d860d4401e73584e3ca472dda494)), closes [#103](https://github.com/pabloubal/local-hitl-review/issues/103)
+
 ## [0.23.6](https://github.com/pabloubal/local-hitl-review/compare/v0.23.5...v0.23.6) (2026-10-04)
 
 
