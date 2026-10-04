@@ -13,8 +13,25 @@
     "vscode": "^1.100.0"
   },
   "categories": [
+    "SCM Providers",
     "Other"
   ],
+  "keywords": [
+    "code review",
+    "review",
+    "human in the loop",
+    "AI agents",
+    "diff",
+    "comments"
+  ],
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "homepage": "https://github.com/pabloubal/local-hitl-review#readme",
+  "bugs": {
+    "url": "https://github.com/pabloubal/local-hitl-review/issues"
+  },
   "activationEvents": [
     "onView:vscodeComment.changedFiles"
   ],
