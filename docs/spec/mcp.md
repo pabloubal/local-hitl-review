@@ -61,7 +61,7 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 
 - **Names** are `snake_case`; **arguments** are `camelCase`, matching the CLI's JSON.
 - **`id`** accepts a full thread ID, a prefix of it, or a handle (4 to 6 characters of the random part; [ADR 0007](../adr/0007-thread-id-handles.md), rules in `cli.md` § Input conventions). An ambiguous handle or prefix is an `INVALID_INPUT` error whose message lists the candidates. Thread objects carry `shortId` (the handle) beside the full `id`.
-- **Input validation** is zod, `.strict()` objects: unknown arguments are rejected. A validation failure is returned as an `INVALID_INPUT` tool error (not a JSON-RPC error). The implementation ticket verifies what the SDK does by default and wraps it if needed.
+- **Input validation** is zod, `.strict()` objects: unknown arguments are rejected. A validation failure is returned as an `INVALID_INPUT` tool error (not a JSON-RPC error). Verified against `@modelcontextprotocol/sdk` 1.32: the high-level `McpServer` turns a schema failure into an `isError` result whose text is a plain `Input validation error: ...` string, not our error object, and it always advertises `tools.listChanged`. The server therefore uses the low-level `Server`, publishes the zod schemas as JSON Schema (draft-07) itself, and validates arguments in its own `tools/call` handler.
 - **`severity`** is `critical | high | medium | low`. **`side`** is `new | old`.
 - **Bodies** are markdown strings, passed directly as the `body` argument (the CLI's stdin form has no meaning here). Empty `body` is `INVALID_INPUT` wherever `body` is required.
 - **Annotations:** every tool sets `openWorldHint: false` and `destructiveHint: false`.
@@ -69,7 +69,7 @@ The server always writes as `{ kind: "agent" }`. The caller cannot choose an ide
 | Tool                                  | `readOnlyHint` | `idempotentHint`                                        |
 | ------------------------------------- | -------------- | ------------------------------------------------------- |
 | `inbox`, `thread_list`, `thread_show` | `true`         | (not set)                                               |
-| `thread_resolve`, `thread_reopen`     | `false`        | `true`                                                  |
+| `thread_resolve`, `thread_reopen`     | `false`        | `true` (with `body`, given the same `clientId`)         |
 | `thread_reply`, `thread_create`       | `false`        | `false` (a retry is safe only with the same `clientId`) |
 
 The server never generates a `clientId` itself.
@@ -84,7 +84,7 @@ On success, every tool returns:
 
 Payloads (`data`), as defined in `cli.md` § Thread object:
 
-- **Reads** return threads with `id, shortId, status, severity, whoseTurn, reviewer, createdAt, location` (`file:line[-end]`) and the re-anchored `anchor` (`path, kind, side, startLine, endLine, state, method`). `thread_list` and `inbox` add `messageCount` and carry no bodies. `thread_show` adds `messages[]` and `snapshot`.
+- **Reads** return threads with `id, shortId, status, severity, whoseTurn, reviewer, createdAt, location` (`path:line[-end]`, `path (file)`, as in `cli.md`) and the re-anchored `anchor` (`path, kind, side, startLine, endLine, state, method`). The thread object, `location` and `shortId` come from the CLI's serializer and handle code, so they match `lhr ... --json` in agent mode byte for byte; handles are computed over submitted threads only. `thread_list` and `inbox` add `messageCount` and carry no bodies. `thread_show` adds `messages[]` and `snapshot`.
 - **Writes** return the same `data` as the CLI (one shared serializer, see `cli.md` § Per-command `data`): `{ root, thread, message: { id }, created }` for `thread_create` and `thread_reply`, and `{ root, thread, message?, created, changed }` for `thread_resolve` and `thread_reopen`. `created: false` means a `clientId` retry hit an existing message; it is still a success. `thread` is the Thread object, including `shortId`.
 - `diagnostics` holds core's `problems` verbatim on `inbox`, `thread_list` and `thread_show` (`severity, code, path, line?, message`). A tree with broken files is still a success. Write tools return `diagnostics: []` unless the pre-write load found problems.
 - The resolved review root is included in `data` as `root` (absolute path), per issue 97 ("echoed in `--json` output"). List results are `{ root, threads }`; `thread_show` is `{ root, thread }`.
@@ -161,14 +161,14 @@ Opens a new thread to flag something the agent is unsure about. Written immediat
 
 ### `thread_resolve`
 
-- **Description guidance:** "Mark a thread resolved. With `body`, posts that text as a reply and resolves in one step. Resolving an already resolved thread succeeds and does nothing."
-- **Input:** `z.object({ id: z.string().min(1), body: z.string().min(1).optional() }).strict()`.
-- **Behaviour:** with `body`, `reply(id, { body, author, status: "resolved" })`; without, `resolve(id, author)`. Idempotent: an already-resolved thread succeeds with no new message.
-- **Output `data`:** `{ root, thread, message?, created, changed }`, as in `cli.md`. When nothing was written (`changed: false`), `message` is absent and `created` is `false`.
+- **Description guidance:** "Mark a thread resolved. With `body`, posts that text as a reply and resolves in one step; pass a `clientId` with a body so a retry is safe. Resolving an already resolved thread without a body succeeds and does nothing."
+- **Input:** `z.object({ id: z.string().min(1), body: z.string().min(1).optional(), clientId: z.string().min(1).optional() }).strict()`.
+- **Behaviour:** with `body`, `reply(id, { body, author, status: "resolved", clientId })`; without, `resolve(id, author)`. Idempotent: without `body`, an already-resolved thread succeeds with no new message; with `body`, a retry with the same `clientId` returns the existing message with `created: false`. `clientId` without `body` is `INVALID_INPUT` (the call is already idempotent, and a flag that can't be honoured is an error, as in `cli.md`).
+- **Output `data`:** `{ root, thread, message?, created, changed }`, as in `cli.md`. `changed` is `true` exactly when the thread's status changed; a body on a thread already in that state is `created: true, changed: false`. When nothing was written, `message` is absent and `created` is `false`.
 
 ### `thread_reopen`
 
-- **Description guidance:** "Reopen a resolved thread. With `body`, posts that text and reopens in one step. Reopening an open thread succeeds and does nothing."
+- **Description guidance:** "Reopen a resolved thread. With `body`, posts that text and reopens in one step; pass a `clientId` with a body so a retry is safe. Reopening an open thread without a body succeeds and does nothing."
 - **Input and behaviour:** as `thread_resolve`, with `status: "open"` and `reopen(id, author)`.
 - **Output `data`:** as `thread_resolve`.
 
@@ -187,6 +187,7 @@ A failure is a tool result with `isError: true`, never a JSON-RPC error. Its sin
 }
 ```
 
+- **No `structuredContent` on errors.** Verified against SDK 1.32: the client skips the "must return structured content" check when `isError` is set, but validates any `structuredContent` it receives against the tool's `outputSchema`, even on an error result. An error object there would fail that check, so errors carry text content only.
 - `code` is a stable `LhrError` code; `message` and the structured example come from the single template table in [`cli.md`](cli.md) § Errors. The CLI renders the example as a command (`lhr thread list --status open`); MCP renders it as `<tool> <json-arguments>`. An MCP error must never show an `lhr ...` command string, since the agent has no shell.
 - The CLI exit-code table does not apply.
 - **Protocol errors** (JSON-RPC) are used only for unknown tools and malformed requests handled by the SDK.
@@ -198,7 +199,7 @@ A failure is a tool result with `isError: true`, never a JSON-RPC error. Its sin
 | `FORMAT_MISSING`, `FORMAT_VERSION` | `.lhr/format` unreadable or from a newer version                                                           | none                                                                                             |
 | `THREAD_NOT_FOUND`                 | no thread matches `id`                                                                                     | `thread_list {"status":"open"}`                                                                  |
 | `MESSAGE_NOT_FOUND`                | core reports a missing message                                                                             | as in `cli.md`                                                                                   |
-| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | `thread_create {"path":"<root-relative path>","line":1}`                                         |
+| `PATH_NOT_IN_REPO`                 | `thread_create` path has no enclosing git repo (issue 105)                                                 | `thread_create {"path":"<root-relative path>","line":1,"body":"<comment>"}`                      |
 | `GIT_FAILED`, `IO_FAILED`          | environment failure                                                                                        | none                                                                                             |
 
 `DRAFT_NOT_FOUND` and `NOT_A_DRAFT` cannot occur: no tool touches drafts.
@@ -233,8 +234,7 @@ Packaging and plugin wiring belong to the release and plugin tickets.
 
 Each needs a decision or a doc fix.
 
-4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one.
-5. **Schema failures.** Issue 102 says the implementation must check what the SDK returns for invalid arguments and wrap it; unverified. Also unverified: whether the SDK skips `outputSchema` validation for `isError` results, and whether an error result should also carry `structuredContent` (this spec: text content only).
+4. **Thread object in write results.** Issue 100 does not say whether `thread` in `{ thread, message, created }` is the list-shaped object (with `messageCount`) or the show-shaped one. The first implementation returns the list-shaped object (no bodies); confirm when the CLI write commands land.
 6. **`/clear` staleness** of the session variable in a long-lived process is accepted but untested (issues 95, 98). `CLAUDE_CODE_SESSION_ID` is documented only in a changelog (anthropics/claude-code#63305).
 7. **Server `name` and `version`** are not stated in any issue; `lhr` is implied by the `mcp__lhr__` tool namespace and the package version is assumed.
 8. **Concurrent calls and multiple trees.** Not specified: whether calls are serialized, and when to dispose a tree for a root that has gone away. This spec keeps all trees until exit and does not serialize reads.
@@ -243,5 +243,7 @@ Each needs a decision or a doc fix.
 ### Resolved
 
 Covered by `cli.md`, `core-api.md` and ADR 0002 now on `main`: identity wording in `core-api.md` (issue 98), `NOT_A_REPO` without an `example`, the no-op write payload (`message` absent, `created: false`, `changed: false`), list `data` shape with `root`, `PATH_NOT_IN_REPO` and non-git roots (issue 105), and ADR 0002's command list.
+
+**Gap 5, schema failures and error results**, verified against `@modelcontextprotocol/sdk` 1.32 while building the server (issue 127): the high-level server reports schema failures as plain-text `isError` results, so the server validates arguments itself and returns `INVALID_INPUT` (see [Common behaviour](#common-behaviour)); the server skips `outputSchema` validation for `isError` results, but the client validates any `structuredContent` present, so error results carry text content only (see [Errors](#errors)).
 
 Accepted by the maintainer: **gap 3, agent name fallback.** The name is `LHR_AGENT_NAME` > `clientInfo.name` (trimmed) > `mcp-agent`; a write is never rejected over the name; there is no `--name` flag on `lhr mcp`. This amends issue 98 (see § Identity).

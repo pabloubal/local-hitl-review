@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { binMode, binPath, build, lhr, mkRepo, pkgVersion } from './helper.mjs';
+import { binMode, binPath, build, lhr, pkgVersion } from './helper.mjs';
 
 const COMMANDS = [
   ['init'],
@@ -96,14 +96,6 @@ test('unknown flag exits 2 with a try: line', () => {
   const r = lhr(['inbox', '--nope']);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^ {2}see: lhr inbox --help$/m);
-});
-
-test('recognised command without an implementation exits 2 and says so', () => {
-  const repo = mkRepo();
-  const r = lhr(['mcp'], { cwd: repo });
-  assert.equal(r.status, 2);
-  assert.match(r.stderr, /not implemented/);
-  assert.match(r.stderr, /^ {2}see: lhr mcp --help$/m);
 });
 
 test('global flags include --name', () => {

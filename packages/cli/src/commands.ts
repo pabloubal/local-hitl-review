@@ -11,6 +11,7 @@ import { ruleWidth, termWidth, useColor } from './term.js';
 import { threadList, threadShow } from './commands/thread-read.js';
 import { check } from './commands/check.js';
 import { inbox } from './commands/inbox.js';
+import { mcpCommand } from './mcp/command.js';
 
 export type OptionsConfig = NonNullable<ParseArgsConfig['options']>;
 
@@ -62,12 +63,6 @@ export const GLOBAL_OPTIONS = {
   'dry-run': { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 } as const satisfies OptionsConfig;
-
-const notImplemented = (name: string): Command => ({
-  async run(ctx) {
-    throw usageError(`lhr ${name} is not implemented yet`, ctx.see);
-  },
-});
 
 /**
  * Internal diagnostics for the foundations: not in help, not a public
@@ -127,7 +122,7 @@ export const HANDLERS: Record<string, Command> = {
   'review submit': { ...reviewSubmit, writes: true },
   check,
   // Always starts (resolves the root per tool call); no --name (mcp.md § Identity).
-  mcp: { ...notImplemented('mcp'), needsRoot: false, rejects: ['name'] },
+  mcp: { ...mcpCommand, needsRoot: false, rejects: ['name'] },
   ...THREAD_WRITE_HANDLERS,
   __debug: debug,
 };
