@@ -1,7 +1,7 @@
 {
   "name": "@pablou/lhr-core",
   "private": true,
-  "version": "0.23.5",
+  "version": "0.23.6",
   "main": "out/src/index.js",
   "types": "out/src/index.d.ts",
   "scripts": {
