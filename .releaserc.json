@@ -5,8 +5,8 @@
     "@semantic-release/changelog",
     ["@semantic-release/npm", { "npmPublish": false, "pkgRoot": "packages/vscode" }],
     ["@semantic-release/exec", {
-      "prepareCmd": "npm version ${nextRelease.version} --workspaces --include-workspace-root --no-git-tag-version --allow-same-version && npm run build && cp README.md CHANGELOG.md packages/vscode/ && cd packages/vscode && npx @vscode/vsce package --no-dependencies",
-      "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then cd packages/vscode && npx @vscode/vsce publish -p $VSCE_PAT --packagePath ./*.vsix; fi"
+      "prepareCmd": "npm version ${nextRelease.version} --workspaces --include-workspace-root --no-git-tag-version --allow-same-version && npm run build && cp README.md CHANGELOG.md packages/vscode/ && cd packages/vscode && npx @vscode/vsce package --no-dependencies && test \"$(node ../cli/dist/lhr.mjs --version)\" = \"${nextRelease.version}\"",
+      "publishCmd": "if [ -n \"$VSCE_PAT\" ]; then (cd packages/vscode && npx @vscode/vsce publish -p $VSCE_PAT --packagePath ./*.vsix); fi && cd packages/cli && npm publish"
     }],
     ["@semantic-release/git", {
       "assets": ["package.json", "packages/*/package.json", "package-lock.json", "CHANGELOG.md"],

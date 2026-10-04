@@ -26,7 +26,8 @@
     "build": "node esbuild.mjs",
     "lint": "tsc --noEmit",
     "test:unit": "node esbuild.mjs && node --test test/*.test.mjs",
-    "test": "npm run test:unit"
+    "test": "npm run test:unit",
+    "smoke:pack": "node scripts/smoke-pack.mjs"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
