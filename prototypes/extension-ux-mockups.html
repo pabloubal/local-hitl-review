@@ -1,0 +1,155 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway. Question: what should the redesigned extension look like?
+     Screens: sidebar (3 variants), editor thread + comment box, submit review, status bar, outdated/orphaned, empty state.
+     Open the file in a browser. No build step. -->
+<html lang="en"><head><meta charset="utf-8"><title>PROTOTYPE: Extension UX mockups</title>
+<style>
+:root{--bg:#1e1e1e;--side:#252526;--fg:#ccc;--dim:#8b8b8b;--line:#3c3c3c;--acc:#0078d4;--warn:#cca700;--ok:#3fb950;--bad:#f85149;--sel:#04395e}
+*{box-sizing:border-box}body{margin:0;background:#111;color:var(--fg);font:13px/1.5 -apple-system,"Segoe UI",sans-serif}
+.bar{position:sticky;top:0;z-index:9;background:#000;padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.bar b{color:#f90;margin-right:8px}.bar button{background:#333;color:#ddd;border:0;padding:4px 10px;border-radius:3px;cursor:pointer}
+.bar button.on{background:var(--acc);color:#fff}
+.note{max-width:980px;margin:14px auto;padding:0 12px;color:var(--dim)}.note b{color:#ddd}
+.win{max-width:980px;margin:12px auto;background:var(--bg);border:1px solid var(--line);display:flex;min-height:420px}
+.pane{display:none}.pane.on{display:block}
+.side{width:300px;background:var(--side);border-right:1px solid var(--line);flex:none}
+.main{flex:1;padding:0;font-family:Menlo,monospace;font-size:12px}
+.sec{display:flex;align-items:center;padding:3px 8px;font-size:11px;font-weight:700;text-transform:uppercase;background:#333;justify-content:space-between}
+.sec .ic{font-weight:400;letter-spacing:6px;color:#aaa}
+.row{padding:2px 8px 2px 20px;display:flex;gap:6px;white-space:nowrap;overflow:hidden}
+.row.g{padding-left:8px;font-weight:600;color:#ddd}.row.sel{background:var(--sel)}.row .r{margin-left:auto;color:var(--dim)}
+.dim{color:var(--dim)}.tag{font-size:10px;border:1px solid;border-radius:8px;padding:0 6px}
+.t-out{color:var(--warn)}.t-orph{color:var(--bad)}.t-dr{color:var(--acc)}.t-ok{color:var(--ok)}
+.hdr{padding:6px 8px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center}
+.pill{background:#3a3d41;border-radius:3px;padding:1px 8px}
+.code div{padding:0 12px;white-space:pre}.code .n{display:inline-block;width:32px;color:var(--dim)}
+.thread{margin:6px 12px 6px 44px;border:1px solid var(--line);background:#252526;font-family:-apple-system,"Segoe UI",sans-serif;font-size:13px}
+.thread .m{padding:6px 10px;border-bottom:1px solid var(--line)}.thread .m b{color:#ddd}
+.thread .ft{padding:6px 10px;display:flex;gap:8px;align-items:center}
+.box{border:1px solid var(--acc);background:#1e1e1e;padding:6px 8px;color:var(--dim);min-height:48px}
+.btn{background:var(--acc);color:#fff;padding:2px 10px;border-radius:2px}.btn2{background:#3a3d41;padding:2px 10px;border-radius:2px}
+.qp{width:520px;margin:20px auto;background:#252526;border:1px solid #454545;box-shadow:0 4px 16px #000}
+.qp .in{padding:6px 10px;border-bottom:1px solid #454545}.qp .it{padding:4px 10px}.qp .it.sel{background:var(--sel)}
+.status{background:#007acc;color:#fff;padding:2px 10px;display:flex;gap:16px;font-size:12px}
+.status .l{margin-right:auto}
+.cap{padding:8px 12px;color:var(--dim);font-size:12px;border-top:1px solid var(--line)}
+.col{flex:1}
+</style></head><body>
+<div class="bar"><b>PROTOTYPE</b>
+<button data-p="side">1 Sidebar</button><button data-p="edit">2 Thread + comment box</button><button data-p="submit">3 Submit review</button>
+<button data-p="status">4 Status bar</button><button data-p="anchor">5 Outdated / orphaned</button><button data-p="empty">6 First run</button></div>
+
+<!-- 1 SIDEBAR -->
+<div class="pane" id="side">
+<div class="note"><b>Question:</b> how should Threads be organised? Pick a variant. All three share: a comparison header, 3 title-bar icons + "…" overflow, a Changes section with checkboxes, and a Threads section. <br>
+Variant: <button class="vb" data-v="A">A. By whose turn</button> <button class="vb" data-v="B">B. By file</button> <button class="vb" data-v="C">C. Flat, sorted, filter chips</button></div>
+<div class="win"><div class="side">
+ <div class="hdr"><span class="dim">REVIEW</span><span style="margin-left:auto" class="dim">⟳ &nbsp;✓ Submit &nbsp;… </span></div>
+ <div class="hdr"><span class="pill">feature ← main ▾</span><span class="dim">4 files</span></div>
+ <div class="sec"><span>⌄ Changes</span><span class="ic">≡ ☐</span></div>
+ <div class="row sel">☑ <span>src/parser.ts</span><span class="r">M · 2 💬</span></div>
+ <div class="row">☑ <span>src/store.ts</span><span class="r">M · 1 💬</span></div>
+ <div class="row">☐ <span>README.md</span><span class="r">M</span></div>
+ <div class="row">☐ <span>old/util.ts</span><span class="r t-orph">D · 1 💬</span></div>
+ <div class="sec"><span>⌄ Threads</span><span class="ic">⌥ ⊘ ⋯</span></div>
+ <div class="tv" data-v="A">
+  <div class="row g">⌄ Waiting on you <span class="r">2</span></div>
+  <div class="row"><span class="t-ok">●</span> parser.ts:42 — "why not trim here?" <span class="r">Claude</span></div>
+  <div class="row"><span class="t-ok">●</span> store.ts:17 — "done, see L20" <span class="r">Claude</span></div>
+  <div class="row g">⌄ Waiting on agent <span class="r">1</span></div>
+  <div class="row">○ parser.ts:88 — "rename this" <span class="r">sent</span></div>
+  <div class="row g">⌄ Drafts <span class="r">3</span></div>
+  <div class="row"><span class="t-dr">✎</span> parser.ts:12 — "nit: typo" <span class="r">draft</span></div>
+  <div class="row"><span class="t-dr">✎</span> store.ts:55 — "needs test" <span class="r">draft</span></div>
+  <div class="row"><span class="t-dr">✎</span> parser.ts:42 — reply <span class="r">draft</span></div>
+  <div class="row g">› Resolved <span class="r">5</span></div>
+ </div>
+ <div class="tv" data-v="B" style="display:none">
+  <div class="row g">⌄ src/parser.ts <span class="r">3</span></div>
+  <div class="row"><span class="t-dr">✎</span> :12 "nit: typo" <span class="r">draft</span></div>
+  <div class="row"><span class="t-ok">●</span> :42 "why not trim here?" <span class="r">your turn</span></div>
+  <div class="row">○ :88 "rename this" <span class="r">agent's turn</span></div>
+  <div class="row g">⌄ src/store.ts <span class="r">2</span></div>
+  <div class="row"><span class="t-ok">●</span> :17 "done, see L20" <span class="r">your turn</span></div>
+  <div class="row"><span class="t-dr">✎</span> :55 "needs test" <span class="r">draft</span></div>
+  <div class="row g t-orph">⌄ old/util.ts <span class="r">1</span></div>
+  <div class="row"><span class="t-orph">⚠</span> :9 "keep this?" <span class="r">orphaned</span></div>
+ </div>
+ <div class="tv" data-v="C" style="display:none">
+  <div class="row"><span class="tag">Your turn 2</span><span class="tag">Agent 1</span><span class="tag">Drafts 3</span><span class="tag">Resolved 5</span></div>
+  <div class="row"><span class="t-ok">●</span> parser.ts:42 "why not trim here?" <span class="r">2m</span></div>
+  <div class="row"><span class="t-ok">●</span> store.ts:17 "done, see L20" <span class="r">9m</span></div>
+  <div class="row"><span class="t-dr">✎</span> parser.ts:12 "nit: typo" <span class="r">draft</span></div>
+  <div class="row"><span class="t-dr">✎</span> store.ts:55 "needs test" <span class="r">draft</span></div>
+  <div class="row"><span class="t-dr">✎</span> parser.ts:42 reply <span class="r">draft</span></div>
+  <div class="row">○ parser.ts:88 "rename this" <span class="r">1h</span></div>
+  <div class="row"><span class="t-orph">⚠</span> old/util.ts:9 <span class="r">orphaned</span></div>
+ </div>
+ <div class="sec"><span>› Agent sessions</span><span class="ic">+</span></div>
+ <div class="row dim">(later) Claude · idle · resume</div>
+</div>
+<div class="main"><div class="hdr"><span class="pill">src/parser.ts</span></div><div class="code">
+<div><span class="n">41</span>function parse(s) {</div><div><span class="n">42</span>  return s.split("\n");</div><div><span class="n">43</span>}</div></div>
+<div class="cap">Title bar: ⟳ refresh, ✓ Submit review, ⋯ overflow (compare mode, collapse all, show resolved, open walkthrough). Comparison header is a clickable pill opening a QuickPick of refs. Checkboxes = "reviewed". ≡ ☐ in Changes = view-as-tree toggle + collapse. Threads icons: ⌥ group-by, ⊘ filter, ⋯ more.</div></div></div></div>
+
+<!-- 2 EDITOR -->
+<div class="pane" id="edit">
+<div class="note"><b>Question:</b> does the comment box teach the keyboard model? Threads render in a normal editor, not only diffs.</div>
+<div class="win"><div class="col"><div class="hdr"><span class="pill">src/parser.ts</span><span class="dim">working tree</span></div><div class="code main">
+<div><span class="n">41</span>function parse(s) {</div><div><span class="n">42</span>  return s.split("\n");</div>
+<div class="thread">
+ <div class="m"><b>You</b> <span class="tag t-dr">Draft</span><br>Why not trim here?</div>
+ <div class="m"><b>Claude</b> · 2m<br>Trimming would drop the final empty line, which <code>serialize</code> relies on. See <code>store.ts:20</code>.</div>
+ <div class="ft"><div class="box" style="flex:1">Reply (⌘↵ to add to review · ⌘⇧↵ to send now)…</div></div>
+ <div class="ft"><span class="btn">Add to review ⌘↵</span><span class="btn2">Resolve</span><span class="dim" style="margin-left:auto">… (Edit · Delete · Severity)</span></div>
+</div>
+<div><span class="n">43</span>}</div>
+<div><span class="n">44</span></div></div>
+<div class="cap">New thread box placeholder: "Comment on line 42… ⌘↵ adds it to your review". First button of the form = Add to review (what ⌘↵ runs). Resolve stays on the thread. Severity and status moved to "…" per the conventions research. Open question: is there a "send now" outside a review round, or does everything go through a round?</div></div></div></div>
+
+<!-- 3 SUBMIT -->
+<div class="pane" id="submit">
+<div class="note"><b>Question:</b> is a QuickPick enough for the verdict and summary? (No webview; stable API.)</div>
+<div class="qp"><div class="in">Submit review · 3 drafts · parser.ts, store.ts</div>
+<div class="it sel">✓ Approve <span class="dim">— no changes needed</span></div>
+<div class="it">💬 Comment <span class="dim">— feedback, no verdict</span></div>
+<div class="it">✗ Request changes <span class="dim">— agent should fix before you re-review</span></div>
+<div class="it dim">⌫ Discard 3 drafts</div></div>
+<div class="qp"><div class="in">Summary (optional) — Enter to submit, Esc to go back</div><div class="it">Mostly nits; see the trim question on parser.ts:42.</div></div>
+<div class="qp"><div class="in">Review submitted · 3 threads sent</div><div class="it">Nudge Claude (session "feat-parser", idle)? &nbsp; <span class="btn">Nudge</span> <span class="btn2">Not now</span></div></div>
+<div class="note">Approve is always allowed; Comment and Request changes need a summary or at least one draft (same rule as the conventions research).</div></div>
+
+<!-- 4 STATUS -->
+<div class="pane" id="status">
+<div class="note"><b>Question:</b> what does the status bar say, and what does a click do?</div>
+<div class="win" style="min-height:0;flex-direction:column">
+<div class="status"><span class="l">$(git-branch) feature</span><span>$(comment-discussion) 3 drafts · 2 waiting on you · Claude idle</span></div>
+<div class="status" style="background:#4d4d4d"><span class="l">No review</span><span>$(comment-discussion) No threads</span></div>
+<div class="status" style="background:#7a5c00"><span class="l">Agent busy</span><span>$(comment-discussion) 0 drafts · 1 waiting on agent · Claude busy…</span></div></div>
+<div class="note">Click opens a QuickPick: Next thread waiting on you · Submit review · Show Threads view · Resume Claude. Tooltip is Markdown with the same list. Colour stays default (backgroundColor only allows error/warning).</div></div>
+
+<!-- 5 ANCHOR -->
+<div class="pane" id="anchor">
+<div class="note"><b>Question:</b> how do outdated and orphaned threads read? Tags are label text (stable API), not the proposed "Outdated" flag.</div>
+<div class="win"><div class="col"><div class="code main"><div><span class="n">42</span>  return s.split("\n");</div>
+<div class="thread"><div class="m"><b>You</b> <span class="tag t-out">Outdated</span><br>Why not trim here?<br><span class="dim">Code changed since this thread was made. <u>Show original</u> · <u>Diff with HEAD</u></span></div></div>
+<div class="thread" style="border-color:var(--bad)"><div class="m"><b>You</b> <span class="tag t-orph">Orphaned</span><br>Keep this helper?<br><span class="dim">The anchored code or file no longer exists (was old/util.ts:9). Pinned to the file, or listed under the file in Threads. <u>Resolve</u> · <u>Re-anchor…</u></span></div></div></div>
+<div class="cap">Sidebar rows: Outdated gets ◐ amber, Orphaned gets ⚠ red and sorts to the bottom of its group. Orphaned threads can't show in an editor; they live in the Threads view and open as a read-only thread preview.</div></div></div></div>
+
+<!-- 6 EMPTY -->
+<div class="pane" id="empty">
+<div class="note"><b>Question:</b> what does first run show?</div>
+<div class="win"><div class="side"><div class="hdr"><span class="dim">REVIEW</span><span style="margin-left:auto" class="dim">⋯</span></div>
+<div style="padding:16px"><b>No changes to review</b><p class="dim">Compare your branch to a base to start. Threads you add show up here and in the editor.</p>
+<p><span class="btn">Choose base to compare</span></p><p><span class="btn2">Open walkthrough</span></p></div></div>
+<div class="main"><div class="cap" style="border:0">After a base is chosen but with no threads: Threads section shows "Click the + in the editor gutter, or press ⌘K ⌘⌥C, to comment on a line." Walkthrough steps: 1 Pick a base · 2 Add a comment (⌘↵) · 3 Submit review · 4 Read agent replies.</div></div></div></div>
+
+<script>
+const $=s=>[...document.querySelectorAll(s)];
+function show(p){$('.pane').forEach(e=>e.classList.toggle('on',e.id===p));$('.bar button').forEach(b=>b.classList.toggle('on',b.dataset.p===p))}
+$('.bar button').forEach(b=>b.onclick=()=>show(b.dataset.p));
+function v(x){$('.tv').forEach(e=>e.style.display=e.dataset.v===x?'':'none');$('.vb').forEach(b=>b.classList.toggle('on',b.dataset.v===x));
+ const q=new URLSearchParams(location.search);q.set('variant',x);history.replaceState(0,'','?'+q)}
+$('.vb').forEach(b=>b.onclick=()=>v(b.dataset.v));
+v(new URLSearchParams(location.search).get('variant')||'A');show('side');
+</script></body></html>
