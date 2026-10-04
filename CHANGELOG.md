@@ -1,3 +1,11 @@
+## [0.23.6](https://github.com/pabloubal/local-hitl-review/compare/v0.23.5...v0.23.6) (2026-10-04)
+
+
+### Bug Fixes
+
+* **core:** order same-second messages by write order ([#155](https://github.com/pabloubal/local-hitl-review/issues/155)) ([#160](https://github.com/pabloubal/local-hitl-review/issues/160)) ([b58c361](https://github.com/pabloubal/local-hitl-review/commit/b58c36104da103daff443310f8186043802dbd3d))
+* **vscode:** publish under the pablou Marketplace publisher ([#161](https://github.com/pabloubal/local-hitl-review/issues/161)) ([107cdb2](https://github.com/pabloubal/local-hitl-review/commit/107cdb263f23a90de3a98e8a9b3cbfc75b852f63))
+
 ## [0.23.5](https://github.com/pabloubal/local-hitl-review/compare/v0.23.4...v0.23.5) (2026-10-03)
 
 
