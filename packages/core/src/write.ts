@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, open, readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 import { captureAnchor, threadMdText, type AnchorInput } from './capture.js';
 import { LhrError } from './errors.js';
+import { parseMessageFileName } from './ids.js';
 import { serializeFrontmatter, type FrontmatterData } from './frontmatter.js';
 import type { Author, Severity, ThreadStatus, ThreadView } from './model.js';
 import type { Tree } from './tree.js';
@@ -234,14 +235,34 @@ export async function replaceAtomic(tree: Tree, file: string, content: string): 
 }
 
 /** Writes a new message file into `dir` and returns its message ID. */
+/** Highest message id among the files of `dirs` (missing dirs are skipped). */
+async function latestMessageId(dirs: string[]): Promise<string | undefined> {
+  let latest: string | undefined;
+  for (const d of dirs) {
+    let names: string[];
+    try {
+      names = await readdir(d);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    for (const n of names) {
+      const id = parseMessageFileName(n)?.id;
+      if (id !== undefined && (latest === undefined || id > latest)) latest = id;
+    }
+  }
+  return latest;
+}
+
 export async function writeMessage(
   tree: Tree,
   dir: string,
   kind: Author['kind'],
   text: string,
+  alsoDirs: string[] = [],
 ): Promise<string> {
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    const name = tree.newMessageFileName(kind);
+    const name = tree.newMessageFileName(kind, await latestMessageId([dir, ...alsoDirs]));
     if (await createAtomic(tree, path.join(dir, name), text)) return name.slice(0, -3);
   }
   throw new LhrError('IO_FAILED', `could not find an unused message file name in ${dir}`);

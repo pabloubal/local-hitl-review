@@ -74,9 +74,8 @@ test('human replies and resolves are drafts the agent cannot see', () => {
   assert.doesNotMatch(shown, /more/);
 });
 
-// Known bug (#155): two writes in the same second can be read back out of order.
-// Remove `todo` once core orders same-second messages by write order.
-test('same-second reopen after resolve keeps the latest status (#155)', { todo: '#155' }, () => {
+// Regression (#155): two writes in the same second are read back in write order.
+test('same-second reopen after resolve keeps the latest status (#155)', () => {
   const { dir } = session();
   const T = handle(ok(run(dir, ['thread', 'create', 'src/app.ts:2', '-'], { input: 'v' })));
   nextSecond();

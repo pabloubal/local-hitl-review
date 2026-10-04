@@ -193,7 +193,10 @@ export async function addDraftMessage(
     if (!thread) throw new LhrError('THREAD_NOT_FOUND', `no thread ${threadId}`);
     const dir = path.join(draftThreadsDir(tree), threadId);
     await mkdir(dir, { recursive: true });
-    return { messageId: await writeMessage(tree, dir, 'human', text) };
+    return { messageId: await writeMessage(tree, dir, 'human', text, [
+        path.join(tree.root, '.lhr', 'threads', threadId),
+      ]),
+    };
   });
 }
 

@@ -42,7 +42,7 @@ $H launch && $H doctor
 - **Fixture.** A new git repo at `$HITL_RUN/instance/fixture`. Branch `main` has `README.md` and `src/app.ts`. The checked-out branch `feature/review-me` modifies `src/app.ts` (adds `// TODO validate input` on line 2) and adds `src/new.ts`. The extension auto-detects `main` as the base.
 - **Extension under test.** The repo is an npm-workspaces monorepo. `launch` loads `packages/vscode` via `--extensionDevelopmentPath`; `packages/core` is not used by the extension. `node_modules/` and `.vscode-test/` stay at the repo root. A stale root-level `out/` from before the move is ignored.
 - **VS Code binary.** `@vscode/test-electron` downloads the latest stable release into `.vscode-test/` (about 300 MB on first run, cached after that). To use a specific build, set `HITL_CODE=/path/to/Code`.
-- **Ready.** `launch` prints `"ready":true` once the extension host log shows `ExtensionService#_doActivateExtension pablo.local-hitl-review`. Activation is lazy (`onView:vscodeComment.changedFiles`), so `launch` expands the "Local HITL Review" view the way a user would.
+- **Ready.** `launch` prints `"ready":true` once the extension host log shows `ExtensionService#_doActivateExtension pablou.local-hitl-review`. Activation is lazy (`onView:vscodeComment.changedFiles`), so `launch` expands the "Local HITL Review" view the way a user would.
 - **Launch is one-shot.** It returns once the instance is ready, and the window keeps running between commands. If you rebuild, `doctor` reports `buildFresh: false`. Run `stop` and then `launch` to load the new build.
 
 ## Doctor
@@ -51,7 +51,7 @@ Run `$H doctor` first whenever anything looks off. It requires all of the follow
 
 - `pidAlive`: the process this run spawned is still alive.
 - `cdp` and `workbenchPage`: the CDP port answers and a workbench page exists. `windowTitle` should read `[Extension Development Host] fixture`.
-- `extensionActivated`: the extension host logged activation of `pablo.local-hitl-review`.
+- `extensionActivated`: the extension host logged activation of `pablou.local-hitl-review`.
 - `fixtureBranch`: `feature/review-me`.
 
 If `ok` is false, run `$H logs`, then `$H stop` and `$H launch`. Never point the helper at a VS Code window it did not start.
