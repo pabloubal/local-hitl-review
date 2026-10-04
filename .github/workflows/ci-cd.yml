@@ -14,9 +14,16 @@ permissions:
   contents: write
 
 jobs:
+  # Unit, integration and CLI built-binary tests on every supported Node
+  # (engines.node >=20), then a pack-and-run smoke test of the npm tarball.
   test:
+    name: test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -24,13 +31,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ matrix.node }}
 
       - name: Install Dependencies
         run: npm ci
 
       - name: Run Tests
         run: xvfb-run -a npm test
+
+      # Builds the CLI, packs it as `npm publish` would, installs the tarball
+      # into a temp dir and runs lhr --version, --help and an MCP handshake.
+      - name: Smoke test the packed CLI
+        run: npm run smoke:pack -w @pablou/lhr
 
   # End-to-end scenarios against approved output (packages/vscode/e2e).
   # Non-blocking while the suite proves itself stable on Linux.
@@ -71,6 +83,10 @@ jobs:
     needs: test
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # npm trusted publishing (OIDC) for @pablou/lhr: no long-lived npm token.
+      id-token: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -82,7 +98,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - name: Update npm
+        run: npm install -g npm@^11.5.1
 
       - name: Install Dependencies
         run: npm ci

@@ -1,10 +1,22 @@
-<!-- Managed by agent: keep sections and order; edit content, not structure. Last updated: 2026-09-25 -->
+<!-- Managed by agent: keep sections and order; edit content, not structure. Last updated: 2026-10-04 -->
 
 # AGENTS.md — workflows
 
 <!-- AGENTS-GENERATED:START overview -->
 ## Overview
 GitHub Actions workflows and CI/CD automation
+
+### `ci-cd.yml` jobs
+- **`test`**: matrix over Node 20 and 22 (`engines.node` is `>=20`), `fail-fast: false`. Runs `xvfb-run -a npm test` (unit, VS Code integration, and the CLI built-binary tests in `packages/cli/test`), then `npm run smoke:pack -w @pablou/lhr`.
+- **Smoke test** (`packages/cli/scripts/smoke-pack.mjs`): builds the CLI, `npm pack`s it, installs the tarball into a temp dir outside the workspace, and runs the installed `lhr --version`, `lhr --help`, and an `lhr mcp` initialize + `tools/list` handshake over stdio. Run it locally with the same command.
+- **`e2e`**: Playwright scenarios, Node 20, non-blocking (`continue-on-error`).
+- **`release`**: push to `main`/`master` only, after `test`. Node 22 with npm upgraded to `^11.5.1`, `permissions: contents: write, id-token: write`. Runs semantic-release (`.releaserc.json`).
+
+### Release and npm trusted publishing
+- One version for everything: the `exec` `prepareCmd` runs `npm version <next> --workspaces --include-workspace-root`, builds, packages the `.vsix`, and fails if the built `lhr --version` differs from the release version. `scripts/check-versions.mjs` (run by `npm test` and `npm run lint`) keeps every workspace on the root version.
+- The `exec` `publishCmd` publishes the `.vsix` (when `VSCE_PAT` is set), then runs `npm publish` in `packages/cli`.
+- `@pablou/lhr` is published with **npm trusted publishing** (GitHub OIDC, `id-token: write`), with provenance and public access from its `publishConfig`. There is no npm token secret; do not add one. The trusted publisher on npmjs.com is bound to repository `pabloubal/local-hitl-review` and workflow file `ci-cd.yml`: renaming the file or moving the publish to another workflow breaks publishing until the npm setting is updated.
+- **Failed publishes are recovered by hand against the release tag.** By publish time semantic-release has already pushed the release commit and tag, so rerunning the job will not publish again. If the `.vsix` or npm publish fails: check out `v<version>`, `npm ci`, `npm run build`, then publish the missing artifact (`cd packages/vscode && npx @vscode/vsce package --no-dependencies && npx @vscode/vsce publish --packagePath ./*.vsix`, and/or `cd packages/cli && npm publish`, logged in with the 2FA-protected maintainer account). A failed `.vsix` publish stops the chain, so the npm package then needs publishing by hand too.
 <!-- AGENTS-GENERATED:END overview -->
 
 <!-- AGENTS-GENERATED:START filemap -->
