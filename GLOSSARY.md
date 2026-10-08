@@ -30,6 +30,22 @@ _Avoid_: Pending comment
 The reviewer's overall outcome for a review round: approve, comment, or request changes.
 _Avoid_: Decision, result
 
+**Resolved**:
+A thread someone has marked done. It no longer counts as waiting on anyone and can be reopened.
+_Avoid_: Closed, done, won't fix
+
+**Turn**:
+Who a thread is waiting on next, the reviewer or the agent. "Waiting on you" means it's the reviewer's turn.
+_Avoid_: Assignee
+
+**Severity**:
+How serious a thread is: critical, high, medium or low, as set on its latest message.
+_Avoid_: Priority
+
+**Viewed**:
+A reviewer's mark on a changed file meaning they've seen its current content. It clears when the content changes.
+_Avoid_: Reviewed
+
 ### Anchoring
 
 **Review root**:
